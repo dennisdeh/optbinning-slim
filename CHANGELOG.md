@@ -10,7 +10,9 @@ Python and dependency stack, defect fixes and test coverage.
 
 ## 0.22.0 (2026-08-23)
 
-First release of the fork, branched at upstream 0.21.0.
+First release of the fork, branched at upstream 0.21.0. On PyPI as
+[`optbinning-slim`](https://pypi.org/project/optbinning-slim/0.22.0/); the import
+package is `optbinning`.
 
 ### Requirements
 

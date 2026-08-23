@@ -3,6 +3,7 @@
 ![CI](https://github.com/dennisdeh/optbinning-slim/workflows/CI/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
+![PyPI](https://img.shields.io/badge/pypi-optbinning--slim%200.22.0-blue)
 ![Tests](https://img.shields.io/badge/tests-212%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-89%25-green)
 
@@ -81,8 +82,11 @@ On PyPI the distribution is named **`optbinning-slim`**; the *import* name stays
 `optbinning` and `optbinning-slim` must not be installed into the same environment —
 they claim the same import package.
 
-The package is prepared for release but has **not been uploaded yet** (as of
-2026-08-23). Until it is, install from source:
+```bash
+pip install optbinning-slim
+```
+
+Or from source:
 
 ```bash
 git clone https://github.com/dennisdeh/optbinning-slim.git
