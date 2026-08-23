@@ -79,6 +79,31 @@ def test_deterministic():
     assert mdlp_1.splits == approx(mdlp_2.splits, rel=1e-12)
 
 
+def test_refit_replaces_previous_splits():
+    # fit must reset the estimator, not add to it: _recurse only appends to
+    # _splits, and splits sorts them, so a second fit used to return each
+    # split twice, interleaved rather than obviously doubled.
+    # See reports/DECISIONS.md.
+    mdlp = MDLP()
+
+    first = mdlp.fit(x, y).splits
+    second = mdlp.fit(x, y).splits
+
+    assert second == approx(first, rel=1e-12)
+
+
+def test_refit_on_different_data():
+    # The second fit must not be contaminated by the first, even where the
+    # two fits disagree about how many splits there are.
+    x_sep = np.arange(200, dtype=float)
+    y_sep = np.array([0] * 100 + [1] * 100)
+
+    mdlp = MDLP()
+    mdlp.fit(x, y)
+
+    assert mdlp.fit(x_sep, y_sep).splits == approx([99.5], rel=1e-12)
+
+
 def test_row_order_independent():
     # The result must depend on the (x, y) pairs, not on the order they arrive
     # in — _find_split reads candidate cuts off y[1:] != y[:-1], so the order

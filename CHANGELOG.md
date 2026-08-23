@@ -10,10 +10,12 @@ Python and dependency stack, defect fixes and test coverage.
 
 ## Unreleased
 
-Two defects that only ever surfaced off this project's development machine.
-Both were found by reading the CI logs of the seven consecutive red runs that
-followed the 0.22.0 release; neither reproduces on Linux x86-64 with CPython
-3.13.15 or 3.14.7, which is why the suite was green locally throughout.
+Getting CI green for the first time. Three of the four defects below surfaced
+only off this project's development machine — found by reading the CI logs of
+the seven consecutive red runs that followed the 0.22.0 release, none of them
+reproducing on Linux x86-64 with CPython 3.13.15 or 3.14.7, which is why the
+suite was green locally throughout. The fourth, the `MDLP` refit, was found
+while fixing the others.
 
 ### Fixed
 
@@ -32,6 +34,13 @@ followed the 0.22.0 release; neither reproduces on Linux x86-64 with CPython
   jobs on 3.92842062. The fix holds that IV at 4.76862756 on every platform.
   Split *values* move in the third decimal for data with ties; split counts
   and IV on the breast-cancer fixture do not.
+
+- **`MDLP.fit` accumulated splits instead of resetting them.** `_splits` was
+  only ever appended to, so refitting an instance returned the previous fit's
+  splits alongside the new ones — and since `splits` sorts them, interleaved
+  rather than obviously doubled. Nothing inside optbinning reused an instance,
+  so this only affected callers who did. `fit` now resets, after validation,
+  so a rejected call leaves the estimator on its last good fit.
 
 - **`Logger.close` leaked a file handle on CPython 3.14.6.** It iterated
   `logger.handlers` while removing from it, which skips every second handler

@@ -119,6 +119,12 @@ class MDLP(BaseEstimator):
         x = x[idx]
         y = y[idx]
 
+        # _recurse only ever appends, so a refit would return this fit's
+        # splits on top of the previous one's. Reset after validation, so a
+        # call rejected for bad parameters or a bad target leaves the
+        # estimator on its last good fit rather than empty.
+        self._splits = []
+
         self._recurse(x, y, 0)
 
         self._is_fitted = True

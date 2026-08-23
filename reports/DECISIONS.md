@@ -189,6 +189,29 @@ monkeypatches the mutating semantics so the property holds regardless of the
 interpreter the suite happens to run on; it is red against the old loop on
 every Python.
 
+## `MDLP.fit` resets `_splits`, and does so after validation
+
+*Last updated: 2026-08-24*
+
+`_splits` was initialised in `__init__` and only ever appended to, by
+`_recurse`, so refitting an instance returned the previous fit's splits as
+well as the new ones — and because `splits` returns `np.sort(self._splits)`,
+they came back interleaved rather than obviously doubled. Measured 2026-08-23
+on breast-cancer `"mean radius"`: 3 splits, then 6.
+
+Nothing inside optbinning hit it — `PreBinning` builds a fresh `MDLP` per fit
+— so it only ever affected users reusing an instance, and no test covered a
+refit.
+
+The reset sits **after** parameter and target validation rather than at the
+top of `_fit`, so a call rejected for a bad `min_samples_leaf` or a
+non-integral target leaves the estimator on its last good fit instead of
+silently emptying it. Pinned by
+`tests/test_mdlp.py::test_refit_replaces_previous_splits` and
+`::test_refit_on_different_data`, the second of which is the sharper test: it
+refits on a separable target and used to return the first fit's three splits
+with `99.5` appended.
+
 ## The test suite pins matplotlib's Agg backend
 
 *Last updated: 2026-08-23*

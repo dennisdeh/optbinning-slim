@@ -60,7 +60,8 @@ matrix is now `fail-fast: false`.
 
 - `MDLP.fit` accumulates splits across refits — found while in the file, filed
   in `OPEN_ITEMS.md` rather than fixed here, to keep this change to the defect
-  it was chasing.
+  it was chasing. (Fixed the next day; see
+  `2026-08-24_mdlp-refit-reset.md`.)
 - No version bump. The fixes sit under **Unreleased** in `CHANGELOG.md`;
   0.22.0 had shipped to PyPI hours earlier and cutting 0.22.1 is a separate
   decision.
