@@ -113,13 +113,14 @@ conda activate optbinning
   an in-flight run, not on a backgrounded one. See *Testing*.
 - **There is no `gh` CLI on this machine and no PR workflow.** Do not reach for `gh`,
   and do not propose opening a PR — merge locally and push.
-- **Pushing does not work from an agent shell.** `origin` is an HTTPS remote and
-  no credential helper is configured (`git config --get credential.helper` is
-  empty), so `git push` dies with `could not read Username for
-  'https://github.com'`. Commit and merge locally, then tell the user to run
-  `! git push origin master` themselves. Do not retry the push, and do not try
-  to work around it by rewriting the remote URL.
-- The remote is `origin` → `https://github.com/dennisdeh/optbinning-slim.git`.
+- **Pushing works from an agent shell, over SSH.** `origin` was switched from HTTPS
+  to SSH on 2026-08-23; before that `git push` died with `could not read Username for
+  'https://github.com'`, since no credential helper is configured. Authentication is
+  `~/.ssh/id_ed25519` served by the running `ssh-agent`, already registered with the
+  GitHub account. Verify with `ssh -T git@github.com`, which answers
+  `Hi dennisdeh!`. If that fails, the agent is not running or the key is not loaded —
+  say so rather than rewriting the remote back to HTTPS.
+- The remote is `origin` → `git@github.com:dennisdeh/optbinning-slim.git`.
   **There is no `upstream` remote configured.** Syncing with
   `guillermo-navas-palencia/optbinning` requires adding it explicitly first — say so and
   ask before adding a remote. Run `git remote -v` before diagnosing any push/fetch
