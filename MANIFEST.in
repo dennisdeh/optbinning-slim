@@ -1,4 +1,5 @@
 # LICENSE, README.md and pyproject.toml are included by setuptools already.
+include CHANGELOG.md
 # The test suite and its fixtures ship in the sdist so a downstream packager can
 # run pytest against the released tarball; the artifacts tests write do not.
 recursive-include tests *.py

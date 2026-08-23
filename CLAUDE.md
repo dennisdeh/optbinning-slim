@@ -210,6 +210,7 @@ Two locations, and the split is strict:
 | examined, found correct, not to be re-raised | `reports/DECISIONS.md` |
 | what happened in this piece of work | `reports/sessions/YYYY-MM-DD_<slug>.md` |
 | how a public class behaves and what its methods branch on | its docstring |
+| what changed for a *user* of the library, per release | `CHANGELOG.md` |
 
 `OPEN_ITEMS` vs `IMPROVEMENT_SUGGESTIONS` is *"is something wrong?"*, not *"is something
 worth doing?"*. A finding that turns out to be by design moves to `DECISIONS.md`
@@ -224,6 +225,10 @@ the next upstream merge tractable.
   Documentation that lags the code is worse than none, because it is trusted.
 - **Renaming, inverting or deleting a test is a documentation change.** Documents credit
   tests *by name* with pinning a property; a rename silently breaks the credit.
+- **A release is a version bump plus its notes, in one commit.** `optbinning/_version.py`
+  is the only place the number lives (`pyproject.toml` reads it), and `CHANGELOG.md`
+  gains the section. The README's badges and its testing table quote measured numbers —
+  re-measure them, do not carry them forward.
 - **Every document carries its vintage.** Each section carries `*Last updated:
   YYYY-MM-DD*`, refreshed when **its** content changes — not when the file is touched
   for something else. Session files are exempt: they are dated by filename.

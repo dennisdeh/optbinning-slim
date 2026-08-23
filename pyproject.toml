@@ -83,7 +83,7 @@ dev = [
 Homepage = "https://github.com/dennisdeh/optbinning-slim"
 Repository = "https://github.com/dennisdeh/optbinning-slim"
 Issues = "https://github.com/dennisdeh/optbinning-slim/issues"
-Changelog = "https://github.com/dennisdeh/optbinning-slim/blob/master/reports/DECISIONS.md"
+Changelog = "https://github.com/dennisdeh/optbinning-slim/blob/master/CHANGELOG.md"
 "Upstream project" = "https://github.com/guillermo-navas-palencia/optbinning"
 "Upstream documentation" = "http://gnpalencia.org/optbinning/"
 

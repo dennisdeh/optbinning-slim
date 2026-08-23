@@ -3,8 +3,8 @@
 ![CI](https://github.com/dennisdeh/optbinning-slim/workflows/CI/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
-![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-85%25-green)
+![Tests](https://img.shields.io/badge/tests-212%20passed-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-89%25-green)
 
 > ### Attribution
 >
@@ -44,15 +44,16 @@ Despite the name, **`optbinning-slim` is not a reduced version of the library.**
 | **Compatibility fixes** | Fixes for behaviour changes in **pandas 3.0** (string dtype detection in `BinningProcess`), **NumPy 2.x** and **scikit-learn 1.7+**. |
 | **Piecewise solvers** | `"clarabel"` is accepted as a solver for the piecewise estimators, alongside `"ecos"`, `"osqp"`, `"direct"`, `"scs"` and `"auto"`. As of `ropwr` 1.2, `"auto"` resolves to `"clarabel"`; before that it resolved to `"ecos"`. |
 | **Packaging** | Metadata moved from `setup.py` to a PEP 621 `pyproject.toml`, which is now the *only* place dependencies are declared — `requirements.txt` and `test_requirements.txt` are gone, replaced by [`environment.yml`](environment.yml) for conda users. `matplotlib` is a hard requirement rather than an implicit one; `ecos` moved into the `test` extra, because `test_binning_piecewise.py::test_solvers` needs it. The distribution is named `optbinning-slim` on PyPI while the import package stays `optbinning`. |
+| **LocalSolver** | `solver="ls"` and the LocalSolver integration were **removed**. `localsolver` is not on PyPI and the `hexaly` package that succeeds it provides no `localsolver` module, so the option was unusable for anyone installing this package. `OptimalBinning` accepts `("cp", "mip")`, as every other estimator already did. |
 | **Documentation** | Upstream's Sphinx sources (`doc/`) are **not** carried in this fork — they describe the library to its users and are maintained upstream. Read them at <http://gnpalencia.org/optbinning/>, or in [the upstream repository](https://github.com/guillermo-navas-palencia/optbinning/tree/master/doc). Docstrings in this repository remain the source of truth for behaviour and are kept current. |
 
-Divergences from upstream, and the reasoning behind each, are recorded in
-[`reports/DECISIONS.md`](reports/DECISIONS.md) so that a future merge with upstream
-stays tractable.
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md). Divergences from upstream, and the
+reasoning behind each, are recorded in [`reports/DECISIONS.md`](reports/DECISIONS.md) so
+that a future merge with upstream stays tractable.
 
 ### What this fork does *not* change
 
-**No feature has been removed.** Every subsystem upstream ships is still here and still
+**No subsystem has been removed.** Every one upstream ships is still here and still
 tested: `distributed` / sketch binning, `uncertainty` (scenario-based binning),
 `counterfactual` explanations, `multidimensional` (2D) binning, `piecewise` binning, and
 all plotting methods. Everything exported from `optbinning/__init__.py` is public API and
@@ -66,8 +67,10 @@ OptimalBinning2D        OptimalBinningSketch      OptimalPWBinning
 SBOptimalBinning        Scorecard
 ```
 
-No new algorithms are added either. Behaviour is intended to match upstream except where
-a fix was required, and every such case is documented.
+The one option that did go is `solver="ls"`, whose dependency cannot be installed at all
+— see the table above. No new algorithms are added either. Behaviour is intended to match
+upstream except where a fix was required, and every such case is documented in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -152,10 +155,10 @@ Current status — *measured 2026-08-23 on Python 3.13.15*:
 
 | | |
 |---|---|
-| **Result** | **176 passed, 0 failed** (9 warnings) |
-| **Test modules** | 17 |
-| **Wall clock** | 208 s (binning problems are real solver runs; the suite is not instant) |
-| **Statement coverage** | **85%** — 11,469 statements, 1,730 uncovered |
+| **Result** | **212 passed, 0 failed** (9 warnings) |
+| **Test modules** | 20 |
+| **Wall clock** | 188 s (binning problems are real solver runs; the suite is not instant) |
+| **Statement coverage** | **89%** — 11,301 statements, 1,244 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 
 Verified against: numpy 2.5.2, pandas 3.0.5, scipy 1.18.1, scikit-learn 1.9.0,
@@ -165,17 +168,19 @@ Coverage by subsystem:
 
 | Area | Coverage |
 |---|---|
-| `scorecard/` (scorecard, monitoring, plots, counterfactual) | 85–100% |
-| `binning/multidimensional/` (2D binning) | 73–98% |
-| `binning/piecewise/` | 69–98% |
-| `binning/distributed/` (sketch algorithms) | 75–89%, except `plots.py` at 13% |
+| `scorecard/` (scorecard, monitoring, plots, counterfactual) | 94% |
+| `binning/multidimensional/` (2D binning) | 92% |
+| `binning/piecewise/` | 92% |
+| `binning/distributed/` (sketch algorithms) | 86% |
 | `binning/uncertainty/` (scenario binning) | 96% |
-| Core estimators (`binning.py`, `continuous_binning.py`, `binning_process.py`) | 75–86% |
-| **Overall** | **85%** |
+| Core estimators (`binning.py`, `continuous_binning.py`, `binning_process.py`) | 82–93% |
+| **Overall** | **89%** |
 
-The lowest-covered modules are `binning/ls.py` (local-search solver, 9%),
-`binning/distributed/plots.py` (13%) and `binning/mdlp.py` (33%) — alternative code
-paths and plotting helpers that the default configuration does not exercise.
+The lowest-covered modules are `binning/piecewise/binning_information.py` (69%),
+`binning/multidimensional/mip_2d.py` (73%) and `binning/distributed/bsketch.py` (75%) —
+reporting paths and solver-specific branches that the default configuration does not
+exercise. `binning/mdlp.py` and `binning/distributed/plots.py`, both largely untested
+upstream, are now at 100%.
 
 **The suite is fully offline** — no network access and no credentials are required.
 Fixtures live in `tests/data/` (`breast_cancer.csv`, `boston_housing.csv`,
@@ -349,7 +354,7 @@ Print an overview of the option settings, problem statistics and the solution:
 ```
 
 ```text
-optbinning (Version 0.21.0)
+optbinning (Version 0.22.0)
 Copyright (c) 2019-2025 Guillermo Navas-Palencia, Apache License 2.0
 
   Begin options
@@ -518,7 +523,7 @@ variables after the binning process.
 ```
 
 ```text
-optbinning (Version 0.21.0)
+optbinning (Version 0.22.0)
 Copyright (c) 2019-2025 Guillermo Navas-Palencia, Apache License 2.0
 
   Begin options
