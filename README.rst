@@ -8,8 +8,8 @@ OptBinning
 .. image::  https://img.shields.io/github/license/guillermo-navas-palencia/optbinning
    :target: https://img.shields.io/github/license/guillermo-navas-palencia/optbinning
 
-.. image:: https://img.shields.io/badge/python-3.7%20%7C%203.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue
-   :target: https://img.shields.io/badge/python-3.7%20%7C%203.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue
+.. image:: https://img.shields.io/badge/python-3.13%20%7C%203.14-blue
+   :target: https://img.shields.io/badge/python-3.13%20%7C%203.14-blue
 
 .. image:: https://img.shields.io/pypi/v/optbinning?color=blueviolet
    :target: https://img.shields.io/pypi/v/optbinning?color=blueviolet
@@ -76,13 +76,13 @@ Dependencies
 ------------
 OptBinning requires
 
-* matplotlib
-* numpy (>=1.16.1)
-* ortools (>=9.4)
-* pandas
-* ropwr (>=1.0.0)
-* scikit-learn (>=1.6.0)
-* scipy (>=1.6.0)
+* matplotlib (>=3.10)
+* numpy (>=2.3)
+* ortools (>=9.14)
+* pandas (>=2.3)
+* ropwr (>=1.2)
+* scikit-learn (>=1.7)
+* scipy (>=1.15)
 
 OptBinning[distributed] requires additional packages
 

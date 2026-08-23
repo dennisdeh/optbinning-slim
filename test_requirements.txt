@@ -1,6 +1,7 @@
 coverage
+ecos
 flake8
-pytest
 pyarrow
 pympler
+pytest
 tdigest

@@ -194,13 +194,16 @@ def test_bounds_transform():
     optb = OptimalPWBinning(name=variable)
     optb.fit(x, y, lb=0.001, ub=0.999)
 
+    # rel=1e-5, not 1e-6: these values were generated with ECOS, and
+    # solver="auto" resolves to Clarabel as of ropwr 1.2. The two agree to
+    # ~7e-6 relative on this problem. See reports/DECISIONS.md.
     x_transform_woe = optb.transform(x, metric="woe")
     assert x_transform_woe[:4] == approx(
-        [3.99180564, 4.28245092, 4.17407503, -3.2565373], rel=1e-6)
+        [3.99180564, 4.28245092, 4.17407503, -3.2565373], rel=1e-5)
 
     x_transform_event_rate = optb.transform(x, metric="event_rate")
     assert x_transform_event_rate[:4] == approx(
-        [0.03015878, 0.02272502, 0.02526056, 0.97763604], rel=1e-6)
+        [0.03015878, 0.02272502, 0.02526056, 0.97763604], rel=1e-5)
 
 
 def test_bounds_fit_transform():
@@ -210,11 +213,11 @@ def test_bounds_fit_transform():
         x, y, lb=0.001, ub=0.999, metric="woe")
 
     assert x_transform_woe[:4] == approx(
-        [3.9918056, 4.2824509, 4.17407503, -3.25653732], rel=1e-6)
+        [3.9918056, 4.2824509, 4.17407503, -3.25653732], rel=1e-5)
     x_transform_event_rate = optb.fit_transform(
         x, y, lb=0.001, ub=0.999, metric="event_rate")
     assert x_transform_event_rate[:4] == approx(
-        [0.03015878, 0.02272502, 0.02526056, 0.97763604], rel=1e-6)
+        [0.03015878, 0.02272502, 0.02526056, 0.97763604], rel=1e-5)
 
 
 def test_solvers():
@@ -224,6 +227,18 @@ def test_solvers():
 
         optb.binning_table.build()
         assert optb.binning_table.iv == approx(5.87474602, rel=1e-6)
+
+
+def test_solver_clarabel():
+    # solver="auto" resolves to the direct solver on this unconstrained
+    # problem, so it matches the reference IV to 1e-6. Clarabel is an
+    # interior-point conic solver and converges only to its own tolerance:
+    # measured 2026-08-23, its IV is 8.3e-05 relative away from the reference.
+    optb = OptimalPWBinning(name=variable, solver="clarabel")
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    assert optb.binning_table.iv == approx(5.87474602, rel=5e-4)
 
 
 def test_user_splits():

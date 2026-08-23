@@ -7,7 +7,7 @@
 ## Project overview  **[core]**
 
 `optbinning-slim` is a fork of [optbinning](https://github.com/guillermo-navas-palencia/optbinning)
-(currently at upstream **0.21.0**, no local divergence yet). It is a scikit-learn-style
+(forked at upstream **0.21.0**; it has diverged — see `reports/DECISIONS.md`). It is a scikit-learn-style
 Python library that solves the *optimal binning* problem — discretising a variable into
 bins that are optimal with respect to a binary, continuous or multiclass target — via
 mathematical programming (CP / MIP / local search over OR-Tools). It is consumed as an
@@ -18,8 +18,9 @@ The fork has three standing goals, in this order:
 1. **Maintenance** — keep parity with upstream, fix bugs, keep it working on current
    Python (the upstream CI matrix stops at 3.12).
 2. **Slim dependencies** — reduce and modernise the dependency surface and packaging
-   (`setup.py` → `pyproject.toml`, the `ortools>=9.4,<9.12` pin, matplotlib as a hard
-   requirement).
+   (`setup.py` → `pyproject.toml`, matplotlib as a hard requirement). The dependency
+   floors were raised and the `ortools` upper cap dropped on 2026-08-23; the fork
+   requires Python >= 3.13.
 3. **No feature removal.** Despite the repo name, **do not strip subsystems.**
    `distributed`/sketch, `uncertainty`, `counterfactual`, `multidimensional`,
    `piecewise` and the plotting methods all stay. Everything exported from
@@ -27,7 +28,7 @@ The fork has three standing goals, in this order:
    something should be removed, *propose it and wait* — do not remove it as part of
    another task.
 
-- **Primary language / runtime:** Python (library supports ≥3.7; CI tests 3.9–3.12)
+- **Primary language / runtime:** Python >= 3.13 (CI tests 3.13 and 3.14)
 - **Entry point:** there is no application entry point. The one command that exercises
   the whole thing is `pytest`, run from the repo root.
 - **Central concept:** an **optimal binning estimator** — `OptimalBinning` and its
@@ -48,14 +49,16 @@ conda activate optbinning
   fresh machine — create it, do not silently fall back to another env:
 
   ```bash
-  conda create -n optbinning python=3.12 -y
+  conda create -n optbinning python=3.13 -y
   conda activate optbinning
-  pip install -e ".[distributed,test,ecos]"   # ecos: CI installs it; test_solvers fails without it
+  pip install -e ".[distributed,test]"
   ```
 
 - **Ignore `.venv/`.** There is a gitignored `.venv/` (Python 3.14.4) in the checkout
   that is **empty** — no numpy, no pytest. It is not the project environment; running
   `.venv/bin/python` produces `ModuleNotFoundError` and wastes a turn.
+- There is also a `optbinning314` conda env (Python 3.14.7), kept to check the upper
+  end of the supported range. `optbinning` is the one to use by default.
 - Dependency definitions live in `setup.py` (`install_requires` / `extras_require`) and
   are duplicated in `requirements.txt` + `test_requirements.txt`, which is what CI
   installs. **A dependency change must be made in all the places that declare it** —
@@ -144,9 +147,10 @@ conda activate optbinning
 - Tests **write** PNG and CSV artifacts into `tests/results/`. Some of those files are
   tracked. Check `git status` after a run and do not commit regenerated plot artifacts
   as part of an unrelated change.
-- `tdigest` / `pympler` (the `distributed` extra) gate the sketch tests, and `ecos` gates
-  `test_binning_piecewise.py::test_solvers`; without them
-  those modules fail to import rather than skipping. Install the extras.
+- `tdigest` / `pympler` (the `distributed` extra) gate the sketch tests; without them
+  those modules fail to import rather than skipping. Install the extras. `ecos` is part
+  of the `test` extra as of 2026-08-23 — `test_binning_piecewise.py::test_solvers`
+  needs it.
 
 ## Debugging  **[core]**
 

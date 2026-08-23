@@ -33,27 +33,29 @@ class CleanCommand(Command):
 
 # install requirements
 install_requires = [
-    'matplotlib',
-    'numpy>=1.16.1',
-    'ortools>=9.4,<9.12',
-    'pandas',
-    'ropwr>=1.0.0',
-    'scikit-learn>=1.6.0',
-    'scipy>=1.6.0',
+    'matplotlib>=3.10',
+    'numpy>=2.3',
+    'ortools>=9.14',
+    'pandas>=2.3',
+    'ropwr>=1.2',
+    'scikit-learn>=1.7',
+    'scipy>=1.15',
 ]
 
 # extra requirements
 extras_require = {
     'distributed': ['pympler', 'tdigest'],
     'test': [
-        'coverage', 
+        'coverage',
         'flake8',
         'pytest',
         'pyarrow',
         'pympler',
         'tdigest',
+        # test_binning_piecewise.py::test_solvers exercises the ECOS solver.
+        'ecos',
     ],
-    # For ecos support: https://github.com/embotech/ecos 
+    # For ecos support: https://github.com/embotech/ecos
     'ecos': ['ecos']
 }
 
@@ -77,7 +79,7 @@ setup(
     license="Apache Licence 2.0",
     url="https://github.com/guillermo-navas-palencia/optbinning",
     cmdclass={'clean': CleanCommand},
-    python_requires='>=3.7',
+    python_requires='>=3.13',
     install_requires=install_requires,
     extras_require=extras_require,
     classifiers=[
@@ -89,9 +91,7 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
-        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
         ]
     )

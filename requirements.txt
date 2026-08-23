@@ -1,7 +1,7 @@
-matplotlib
-numpy>=1.16.1
-ortools>=9.4,<9.12
-pandas
-ropwr>=1.0.0
-scikit-learn>=1.6.0
-scipy>=1.6.0
+matplotlib>=3.10
+numpy>=2.3
+ortools>=9.14
+pandas>=2.3
+ropwr>=1.2
+scikit-learn>=1.7
+scipy>=1.15
