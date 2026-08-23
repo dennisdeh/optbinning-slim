@@ -3,6 +3,31 @@
 Things the code does that it should not. One entry per defect; remove the entry
 in the commit that fixes it.
 
+## `MDLP.fit` accumulates splits instead of resetting them
+
+*Last updated: 2026-08-23*
+
+`MDLP._splits` is initialised in `__init__` and only ever appended to, by
+`_recurse`. Refitting the same instance therefore keeps the previous fit's
+splits:
+
+```python
+m = MDLP()
+len(m.fit(x, y).splits)   # 3
+len(m.fit(x, y).splits)   # 6   <- the same three, twice
+```
+
+Measured 2026-08-23 on breast-cancer `"mean radius"`, Python 3.14.7. This
+breaks the sklearn contract that `fit` resets the estimator, and `splits`
+returns `np.sort(self._splits)`, so the duplicates come back interleaved rather
+than obviously doubled.
+
+No caller inside optbinning hits it — `PreBinning` constructs a fresh `MDLP`
+per fit — so it only affects users who reuse an instance, and nothing in the
+suite covers a refit. The fix is to reset `self._splits` at the top of `_fit`,
+with a regression test that fits twice; it was left out of the 2026-08-23
+cross-platform CI fix to keep that change to the defect it was chasing.
+
 ## cvxpy cannot use its HIGHS backend in any optbinning process
 
 *Last updated: 2026-08-23*

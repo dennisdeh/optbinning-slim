@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![PyPI](https://img.shields.io/badge/pypi-optbinning--slim%200.22.0-blue)
-![Tests](https://img.shields.io/badge/tests-212%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-214%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-89%25-green)
 
 > ### Attribution
@@ -159,10 +159,10 @@ Current status — *measured 2026-08-23 on Python 3.13.15*:
 
 | | |
 |---|---|
-| **Result** | **212 passed, 0 failed** (9 warnings) |
+| **Result** | **214 passed, 0 failed** (9 warnings) |
 | **Test modules** | 20 |
-| **Wall clock** | 188 s (binning problems are real solver runs; the suite is not instant) |
-| **Statement coverage** | **89%** — 11,301 statements, 1,244 uncovered |
+| **Wall clock** | 203 s (binning problems are real solver runs; the suite is not instant) |
+| **Statement coverage** | **89%** — 11,308 statements, 1,245 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 
 Verified against: numpy 2.5.2, pandas 3.0.5, scipy 1.18.1, scikit-learn 1.9.0,

@@ -145,13 +145,31 @@ class MDLP(BaseEstimator):
 
     def _find_split(self, u_x, x, y):
         n_x = len(x)
-        u_x = np.unique(0.5 * (x[1:] + x[:-1])[(y[1:] - y[:-1]) != 0])
 
-        if len(u_x) > self.max_candidates:
+        # Fayyad-Irani boundary points, read per distinct value of x rather
+        # than per row: the midpoint between two adjacent values is a
+        # candidate cut unless every observation at both of them carries the
+        # same single label. Taking the labels off y[1:] != y[:-1] instead
+        # made the candidate set depend on the order np.argsort happens to
+        # leave tied x values in, which is not stable and differs by
+        # architecture. See reports/DECISIONS.md.
+        if len(u_x) < 2:
+            return None
+
+        starts = np.searchsorted(x, u_x, side="left")
+        label_min = np.minimum.reduceat(y, starts)
+        label_max = np.maximum.reduceat(y, starts)
+
+        pure = label_min == label_max
+        boundary = ~(pure[:-1] & pure[1:] & (label_min[:-1] == label_min[1:]))
+
+        candidates = 0.5 * (u_x[1:] + u_x[:-1])[boundary]
+
+        if len(candidates) > self.max_candidates:
             percentiles = np.linspace(1, 100, self.max_candidates)
-            splits = np.percentile(u_x, percentiles)
+            splits = np.percentile(candidates, percentiles)
         else:
-            splits = u_x
+            splits = candidates
 
         max_entropy_gain = 0
         best_split = None

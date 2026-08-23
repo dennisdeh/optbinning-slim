@@ -152,9 +152,11 @@ Pinned by `test_json_round_trip` in `tests/test_binning.py`,
 `tests/test_continuous_binning.py` and `tests/test_multiclass_binning.py`, all
 three red before the change.
 
-## `Logger.close` is correct, despite appearing to iterate what it mutates
+## `Logger.close` was **not** correct — the Python floor is not the boundary
 
 *Last updated: 2026-08-23*
+
+An earlier revision of this file argued that
 
 ```python
 for handler in self.logger.handlers:
@@ -162,16 +164,74 @@ for handler in self.logger.handlers:
     self.logger.removeHandler(handler)
 ```
 
-This reads as the classic mutate-while-iterating bug that would skip the second
-handler and leak the file handle. It is not one on this project's supported
-Pythons: since 3.13, `logging.Logger.removeHandler` **replaces** the handler
-list rather than mutating it, so the `for` loop keeps iterating the original
-list and visits every handler. Verified 2026-08-23 on 3.13.15 by watching
-`id(logger.handlers)` change on each removal; both handlers are removed.
+was safe on this project's supported Pythons, because `removeHandler`
+**replaces** the handler list rather than mutating it (gh-79366) from 3.13
+onward, so the loop keeps iterating the original list. That reasoning treated a
+*minor* version as the boundary. It is a **micro** version boundary, and the
+supported range straddles it:
 
-It *would* skip on 3.12 and earlier, where the list is mutated in place, but
-`python_requires` is `>=3.13`. Pinned by `tests/test_logging.py::test_close`.
-Do not "fix" it by iterating a copy without first checking the Python floor.
+| interpreter | `removeHandler` | `test_close` |
+|---|---|---|
+| 3.13.15 | rebinds | passes |
+| **3.14.6** | **mutates in place** | **fails** |
+| 3.14.7 | rebinds | passes |
+
+The macOS CI runners were on CPython 3.14.6, which is inside `requires-python
+>= 3.13`, and `test_close` failed there — one `FileHandler` survived `close()`
+and leaked the file handle. `close()` now iterates `list(...)`, which is
+correct under either semantics.
+
+The lesson generalises: a `>=X.Y` floor says nothing about which micro version
+of `X.Y` a user or a runner has, so it cannot license depending on a change
+that shipped in a point release. Pinned by
+`tests/test_logging.py::test_close_when_removehandler_mutates_in_place`, which
+monkeypatches the mutating semantics so the property holds regardless of the
+interpreter the suite happens to run on; it is red against the old loop on
+every Python.
+
+## MDLP candidate cuts are read per distinct value, not per row
+
+*Last updated: 2026-08-23*
+
+`_find_split` took its candidate cut points from the rows where the label
+changes:
+
+```python
+u_x = np.unique(0.5 * (x[1:] + x[:-1])[(y[1:] - y[:-1]) != 0])
+```
+
+With ties in `x` this depends on the order `np.argsort(x)` leaves tied rows in
+— and `np.argsort` defaults to a **non-stable** quicksort whose tie order is
+SIMD- and architecture-dependent. The same data therefore discretised
+differently on different machines.
+
+Measured 2026-08-23 on breast-cancer `"mean radius"` (569 rows, 456 distinct
+values, 24 tied values carrying both labels): permuting the input rows moved
+the IV of `OptimalBinning(prebinning_method="mdlp")` over the range **3.85 to
+4.82**. The Linux x86-64 jobs happened to land on 4.76862756 and the macOS
+arm64 jobs on 3.92842062, which is the whole of the `test_prebinning_method`
+CI failure.
+
+The fix reads the labels **per distinct value of x** and applies the
+Fayyad-Irani boundary rule: the midpoint between two adjacent values is a
+candidate cut unless every observation at both values carries the same single
+label. Because it only ever consults the set of labels present at a value, the
+candidate set — and so the whole discretisation — is a function of the
+`(x, y)` pairs alone.
+
+Two alternatives were measured and rejected:
+
+- `np.argsort(x, kind="stable")` — deterministic across machines, but the
+  answer still depends on the order the rows arrive in, and the IV falls to
+  3.86987386.
+- `np.lexsort((y, x))` — order-independent, but it fixes an arbitrary
+  convention rather than removing the arbitrariness, and the IV falls to
+  3.84224645.
+
+The boundary rule leaves `test_prebinning_method` at its documented IV of
+**4.76862756**, so it corrects the defect without moving the number the earlier
+MDLP work measured. Pinned by `tests/test_mdlp.py::test_row_order_independent`,
+red against the old candidate set.
 
 ## MDLP split values are interpolated, so literal expectations are fragile
 
@@ -185,12 +245,18 @@ splits where the commented test expected 6, and the shared values differ in the
 third decimal).
 
 The reason is in `_find_split`: when there are more candidates than
-`max_candidates`, it takes `np.percentile(u_x, percentiles)` of the candidate
-midpoints. Percentile interpolation returns values *between* midpoints, so the
-split points are not observed midpoints and they move with numpy's
-interpolation. Any value between two adjacent observations induces the same
-partition, so this is not a defect — but it does mean a literal expectation
-pins numpy, not optbinning.
+`max_candidates`, it takes `np.percentile(candidates, percentiles)` of the
+candidate midpoints. Percentile interpolation returns values *between*
+midpoints, so the split points are not observed midpoints and they move with
+numpy's interpolation. Any value between two adjacent observations induces the
+same partition, so this is not a defect — but it does mean a literal
+expectation pins numpy, not optbinning.
+
+This is the *remaining* source of fragility in the split values. The other one
+— the candidate set itself moving with the order tied `x` values were sorted
+into — was a defect, and is fixed; see the boundary-point entry above. The
+counts quoted here are from before that work and before the stopping-criterion
+fix: the default `MDLP` fit on "mean radius" gives 3 splits as of 2026-08-23.
 
 The replacements assert properties instead: splits are strictly increasing,
 strictly inside the range of x, each one actually partitions the sample, no leaf

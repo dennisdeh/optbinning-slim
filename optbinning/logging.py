@@ -28,6 +28,10 @@ class Logger:
             self.logger.addHandler(fhandler)
 
     def close(self):
-        for handler in self.logger.handlers:
+        # Iterate a copy: whether removeHandler rebinds logger.handlers or
+        # mutates it in place varies by CPython micro version (gh-79366), and
+        # iterating the live list skips every second handler where it mutates.
+        # See reports/DECISIONS.md.
+        for handler in list(self.logger.handlers):
             handler.close()
             self.logger.removeHandler(handler)

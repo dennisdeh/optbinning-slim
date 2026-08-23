@@ -14,15 +14,20 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     strategy:
+      # Report every cell. Cancelling the rest on the first failure hid a
+      # second, unrelated failure on the 3.13 jobs behind the 3.14 one for
+      # seven consecutive runs; the surviving annotation only ever named
+      # whichever job happened to finish first.
+      fail-fast: false
       matrix:
 
         python-version: ["3.13", "3.14"]
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install package
@@ -45,9 +50,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: "3.13"
     - name: Build sdist and wheel
@@ -57,7 +62,7 @@ jobs:
     - name: Check metadata
       run: python -m twine check --strict dist/*
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: dist
         path: dist/

@@ -8,6 +8,46 @@ before 0.22.0 are upstream's; their notes are in the
 The fork adds no algorithms. Everything below is packaging, currency with the
 Python and dependency stack, defect fixes and test coverage.
 
+## Unreleased
+
+Two defects that only ever surfaced off this project's development machine.
+Both were found by reading the CI logs of the seven consecutive red runs that
+followed the 0.22.0 release; neither reproduces on Linux x86-64 with CPython
+3.13.15 or 3.14.7, which is why the suite was green locally throughout.
+
+### Fixed
+
+- **`MDLP` gave different discretisations on different machines.**
+  `_find_split` read its candidate cut points off the rows where the label
+  changes, so with ties in `x` the answer depended on the order
+  `np.argsort` left tied rows in — and that order is neither stable nor the
+  same across CPU architectures. It now applies the Fayyad-Irani boundary rule
+  per *distinct value* of `x`: the midpoint between two adjacent values is a
+  candidate cut unless every observation at both values carries the same
+  single label. The result is now a function of the `(x, y)` pairs alone.
+
+  Measured 2026-08-23 on breast-cancer `"mean radius"`, permuting the input
+  rows moved the IV of `OptimalBinning(prebinning_method="mdlp")` over the
+  range 3.85 to 4.82; the Linux jobs landed on 4.76862756 and the macOS arm64
+  jobs on 3.92842062. The fix holds that IV at 4.76862756 on every platform.
+  Split *values* move in the third decimal for data with ties; split counts
+  and IV on the breast-cancer fixture do not.
+
+- **`Logger.close` leaked a file handle on CPython 3.14.6.** It iterated
+  `logger.handlers` while removing from it, which skips every second handler
+  wherever `logging.Logger.removeHandler` mutates that list in place. Whether
+  it mutates or rebinds (gh-79366) varies by *micro* version — 3.13.15 and
+  3.14.7 rebind, 3.14.6 does not — so the supported range straddles the
+  boundary. It now iterates a copy.
+
+### Continuous integration
+
+- **`fail-fast: false`** on the test matrix. Cancelling the other five jobs on
+  the first failure hid the 3.13 failure behind the 3.14 one for seven runs,
+  and left an annotation naming only whichever job finished first.
+- `actions/checkout`, `actions/setup-python` and `actions/upload-artifact`
+  bumped to v5, v6 and v5, clearing the Node 20 deprecation warnings.
+
 ## 0.22.0 (2026-08-23)
 
 First release of the fork, branched at upstream 0.21.0. On PyPI as

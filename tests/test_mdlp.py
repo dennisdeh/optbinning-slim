@@ -79,6 +79,23 @@ def test_deterministic():
     assert mdlp_1.splits == approx(mdlp_2.splits, rel=1e-12)
 
 
+def test_row_order_independent():
+    # The result must depend on the (x, y) pairs, not on the order they arrive
+    # in — _find_split reads candidate cuts off y[1:] != y[:-1], so the order
+    # the sort gives tied x values changes the answer. "mean radius" has 24
+    # tied values carrying both labels; before the fix the IV of
+    # OptimalBinning(prebinning_method="mdlp") ranged over 3.85 to 4.82 across
+    # orderings, which is how the macOS CI job disagreed with Linux.
+    # See reports/DECISIONS.md.
+    splits = MDLP().fit(x, y).splits
+
+    rng = np.random.RandomState(0)
+    for _ in range(5):
+        idx = rng.permutation(len(x))
+
+        assert MDLP().fit(x[idx], y[idx]).splits == approx(splits, rel=1e-12)
+
+
 def test_separable_target():
     x_sep = np.arange(200, dtype=float)
     y_sep = np.array([0] * 100 + [1] * 100)
