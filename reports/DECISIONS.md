@@ -189,6 +189,23 @@ monkeypatches the mutating semantics so the property holds regardless of the
 interpreter the suite happens to run on; it is red against the old loop on
 every Python.
 
+## The test suite pins matplotlib's Agg backend
+
+*Last updated: 2026-08-23*
+
+`tests/conftest.py` calls `matplotlib.use("Agg", force=True)`. The plotting
+tests only ever save figures, so the backend is not part of what they assert,
+and letting matplotlib choose costs correctness rather than buying anything:
+it picks a GUI backend wherever it believes there is a display, which on
+Windows is always. The hosted CPython 3.13.15 on the Windows runners ships a
+Tcl tree that `tkinter` cannot initialise — `TclError: Can't find a usable
+init.tcl` — and `test_multiclass_binning.py::test_numerical_default` died on
+it. The 3.14 Windows job passed, so this is per-runner-image, not per-Python.
+
+It had never been reported because `fail-fast: true` cancelled the Windows
+jobs before they finished, every run. Pinning the backend also means a
+contributor on a headless box gets the same suite CI does.
+
 ## MDLP candidate cuts are read per distinct value, not per row
 
 *Last updated: 2026-08-23*

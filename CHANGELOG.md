@@ -40,11 +40,19 @@ followed the 0.22.0 release; neither reproduces on Linux x86-64 with CPython
   3.14.7 rebind, 3.14.6 does not — so the supported range straddles the
   boundary. It now iterates a copy.
 
+- **The test suite no longer needs a GUI toolkit.** `tests/conftest.py` pins
+  matplotlib's non-interactive `Agg` backend. Matplotlib otherwise picks a GUI
+  backend wherever it believes there is a display — always, on Windows — and
+  the Windows runners' CPython 3.13.15 ships a Tcl tree `tkinter` cannot
+  initialise, which killed `test_multiclass_binning.py::test_numerical_default`
+  there. Nothing in the library changed; this affects the suite only.
+
 ### Continuous integration
 
 - **`fail-fast: false`** on the test matrix. Cancelling the other five jobs on
-  the first failure hid the 3.13 failure behind the 3.14 one for seven runs,
-  and left an annotation naming only whichever job finished first.
+  the first failure hid two further failures — the 3.13 one behind the 3.14
+  one, and the Windows one behind both — for seven runs, and left an
+  annotation naming only whichever job finished first.
 - `actions/checkout`, `actions/setup-python` and `actions/upload-artifact`
   bumped to v5, v6 and v5, clearing the Node 20 deprecation warnings.
 

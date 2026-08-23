@@ -161,7 +161,7 @@ Current status — *measured 2026-08-23 on Python 3.13.15*:
 |---|---|
 | **Result** | **214 passed, 0 failed** (9 warnings) |
 | **Test modules** | 20 |
-| **Wall clock** | 203 s (binning problems are real solver runs; the suite is not instant) |
+| **Wall clock** | 183 s (binning problems are real solver runs; the suite is not instant) |
 | **Statement coverage** | **89%** — 11,308 statements, 1,245 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 

@@ -11,8 +11,8 @@ deprecation warnings.
 214 passed on Python 3.13.15 and on 3.14.7 (was 212 + the 2 new regression
 tests), `flake8 --select=E9,F63,F7,F82 --exclude=.venv` reports 0.
 
-Two defects, both of which reproduce only off this development machine, which
-is why the suite was green locally through all seven red runs:
+Three defects, none of which reproduce on this development machine, which is
+why the suite was green locally through all seven red runs:
 
 - `MDLP._find_split` read candidate cuts per *row*, so ties in `x` made the
   result depend on the order `np.argsort` left tied rows in — not stable, and
@@ -20,9 +20,14 @@ is why the suite was green locally through all seven red runs:
 - `Logger.close` iterated the list it was removing from, which only survives
   where CPython rebinds `Logger.handlers` (gh-79366). The macOS runners had
   3.14.6, which does not.
+- The suite let matplotlib choose a backend, so it needed a working GUI
+  toolkit. The Windows runners' CPython 3.13.15 ships a Tcl tree `tkinter`
+  cannot initialise. **This third one only became visible after
+  `fail-fast: false` landed** — the first two fixes turned five jobs green and
+  the Windows job then reported for the first time.
 
-The reasoning and the measurements for both are in `DECISIONS.md`, which also
-had to **retract** its own earlier "`Logger.close` is correct" entry: that
+The reasoning and the measurements for all three are in `DECISIONS.md`, which
+also had to **retract** its own earlier "`Logger.close` is correct" entry: that
 entry reasoned from the `>=3.13` floor, and the behaviour it relied on turns on
 a *micro* version the supported range straddles.
 
