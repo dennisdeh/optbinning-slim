@@ -13,13 +13,6 @@ The code is correct and could be better. Not defects — those go to
   rather than untested logic, so the yield per test is lower than what the
   2026-08-23 pass found.
 
-- **Dependencies are declared three times.** `setup.py` (`install_requires` /
-  `extras_require`), `requirements.txt` and `test_requirements.txt` all list
-  them, and CI installs the latter two before installing the package. Any
-  version change has to be made in every copy — the 2026-08-23 dependency
-  update had to touch all three plus the README. Consolidating on a
-  `pyproject.toml` would remove the duplication and is the natural next step of
-  the fork's dependency-slimming goal.
 - **Stale `.venv/` in the checkout** (Python 3.14.4, no packages). It is
   gitignored so it costs nothing in the repository, but flake8 walks it and
   reports ~21 `F821`s from vendored pip code. Deleting it locally would remove
