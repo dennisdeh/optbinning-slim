@@ -228,7 +228,9 @@ the next upstream merge tractable.
 - **A release is a version bump plus its notes, in one commit.** `optbinning/_version.py`
   is the only place the number lives (`pyproject.toml` reads it), and `CHANGELOG.md`
   gains the section. The README's badges and its testing table quote measured numbers —
-  re-measure them, do not carry them forward.
+  re-measure them, do not carry them forward. Then tag that commit **`vX.Y.Z`**
+  (annotated, with the summary in the message) and push the tag: `v0.22.0` is the first
+  tag this repository has, so that prefix is the convention.
 - **Every document carries its vintage.** Each section carries `*Last updated:
   YYYY-MM-DD*`, refreshed when **its** content changes — not when the file is touched
   for something else. Session files are exempt: they are dated by filename.
