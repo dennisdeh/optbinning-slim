@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optbinning-slim"
+description = "OptBinning: the Python optimal binning library — maintenance fork on current Python"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dynamic = ["version"]
+
+# The library, its formulation and essentially all of its code are the work of the
+# upstream author; this fork adds no algorithms. See the attribution note in README.md.
+authors = [
+    { name = "Guillermo Navas-Palencia", email = "g.navas.palencia@gmail.com" },
+]
+maintainers = [
+    { name = "dennisdeh", email = "dennishansendeh@gmail.com" },
+]
+
+keywords = [
+    "optimal-binning",
+    "binning",
+    "discretization",
+    "weight-of-evidence",
+    "woe",
+    "scorecard",
+    "credit-risk",
+    "mathematical-programming",
+    "machine-learning",
+]
+
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "matplotlib>=3.10",
+    "numpy>=2.3",
+    "ortools>=9.14",
+    "pandas>=2.3",
+    "ropwr>=1.2",
+    "scikit-learn>=1.7",
+    "scipy>=1.15",
+]
+
+[project.optional-dependencies]
+# Batch and stream binning (sketch algorithms).
+distributed = ["pympler", "tdigest"]
+# The ECOS solver for piecewise binning: https://github.com/embotech/ecos
+ecos = ["ecos"]
+# Test suite, linting and coverage. ecos is here because
+# test_binning_piecewise.py::test_solvers exercises that solver.
+test = [
+    "coverage",
+    "ecos",
+    "flake8",
+    "pyarrow",
+    "pympler",
+    "pytest",
+    "tdigest",
+]
+# Everything needed to develop, test and build a release.
+dev = [
+    "optbinning-slim[distributed,ecos,test]",
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dennisdeh/optbinning-slim"
+Repository = "https://github.com/dennisdeh/optbinning-slim"
+Issues = "https://github.com/dennisdeh/optbinning-slim/issues"
+Changelog = "https://github.com/dennisdeh/optbinning-slim/blob/master/reports/DECISIONS.md"
+"Upstream project" = "https://github.com/guillermo-navas-palencia/optbinning"
+"Upstream documentation" = "http://gnpalencia.org/optbinning/"
+
+[tool.setuptools.dynamic]
+# Read as a literal by setuptools; importing the package is not required.
+version = { attr = "optbinning._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["optbinning*"]
+namespaces = false

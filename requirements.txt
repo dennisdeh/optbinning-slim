@@ -1,7 +1,0 @@
-matplotlib>=3.10
-numpy>=2.3
-ortools>=9.14
-pandas>=2.3
-ropwr>=1.2
-scikit-learn>=1.7
-scipy>=1.15

@@ -1,7 +1,0 @@
-coverage
-ecos
-flake8
-pyarrow
-pympler
-pytest
-tdigest

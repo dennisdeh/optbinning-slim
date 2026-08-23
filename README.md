@@ -20,7 +20,8 @@
 > stack. If OptBinning is useful to you, the credit and the
 > [citations](#citation) belong upstream.
 >
-> Upstream documentation: <http://gnpalencia.org/optbinning/> ·
+> Upstream documentation (this fork does not carry its own copy):
+> <http://gnpalencia.org/optbinning/> ·
 > Upstream repository: <https://github.com/guillermo-navas-palencia/optbinning>
 
 **OptBinning** is a Python library implementing a rigorous and flexible mathematical
@@ -42,7 +43,8 @@ Despite the name, **`optbinning-slim` is not a reduced version of the library.**
 | **Dependencies** | Version floors raised to a current, coherent stack (see [Dependencies](#dependencies)). The `ortools>=9.4,<9.12` upper cap was **dropped** — the fork tracks current OR-Tools. |
 | **Compatibility fixes** | Fixes for behaviour changes in **pandas 3.0** (string dtype detection in `BinningProcess`), **NumPy 2.x** and **scikit-learn 1.7+**. |
 | **Piecewise solvers** | `"clarabel"` is accepted as a solver for the piecewise estimators, alongside `"ecos"`, `"osqp"`, `"direct"`, `"scs"` and `"auto"`. As of `ropwr` 1.2, `"auto"` resolves to `"clarabel"`; before that it resolved to `"ecos"`. |
-| **Packaging** | `setup.py` is being modernised toward `pyproject.toml`; `matplotlib` is a hard requirement rather than an implicit one; `ecos` moved into the `test` extra, because `test_binning_piecewise.py::test_solvers` needs it. |
+| **Packaging** | Metadata moved from `setup.py` to a PEP 621 `pyproject.toml`, which is now the *only* place dependencies are declared — `requirements.txt` and `test_requirements.txt` are gone, replaced by [`environment.yml`](environment.yml) for conda users. `matplotlib` is a hard requirement rather than an implicit one; `ecos` moved into the `test` extra, because `test_binning_piecewise.py::test_solvers` needs it. The distribution is named `optbinning-slim` on PyPI while the import package stays `optbinning`. |
+| **Documentation** | Upstream's Sphinx sources (`doc/`) are **not** carried in this fork — they describe the library to its users and are maintained upstream. Read them at <http://gnpalencia.org/optbinning/>, or in [the upstream repository](https://github.com/guillermo-navas-palencia/optbinning/tree/master/doc). Docstrings in this repository remain the source of truth for behaviour and are kept current. |
 
 Divergences from upstream, and the reasoning behind each, are recorded in
 [`reports/DECISIONS.md`](reports/DECISIONS.md) so that a future merge with upstream
@@ -71,7 +73,13 @@ a fix was required, and every such case is documented.
 
 ## Installation
 
-This fork is **not published on PyPI**. Install it from source:
+On PyPI the distribution is named **`optbinning-slim`**; the *import* name stays
+`optbinning`, so the fork is a drop-in replacement for upstream. For that same reason
+`optbinning` and `optbinning-slim` must not be installed into the same environment —
+they claim the same import package.
+
+The package is prepared for release but has **not been uploaded yet** (as of
+2026-08-23). Until it is, install from source:
 
 ```bash
 git clone https://github.com/dennisdeh/optbinning-slim.git
@@ -79,20 +87,32 @@ cd optbinning-slim
 pip install -e .
 ```
 
-Optional extras:
+For the **upstream** release, use `pip install optbinning` instead.
+
+### With conda
+
+[`environment.yml`](environment.yml) builds the `optbinning` development environment —
+the interpreter from `conda-forge`, every project dependency resolved from
+`pyproject.toml`:
 
 ```bash
-pip install -e ".[distributed]"   # batch and stream binning (sketch algorithms)
-pip install -e ".[ecos]"          # the ECOS solver, used by piecewise binning
-pip install -e ".[test]"          # test suite, linting and coverage
-pip install -e ".[distributed,test]"   # everything needed to run the full suite
+conda env create -f environment.yml
+conda activate optbinning
 ```
 
-For the **upstream** release, use `pip install optbinning` instead.
+### Optional extras
+
+```bash
+pip install -e ".[distributed]"        # batch and stream binning (sketch algorithms)
+pip install -e ".[ecos]"               # the ECOS solver, used by piecewise binning
+pip install -e ".[test]"               # test suite, linting and coverage
+pip install -e ".[dev]"                # all of the above, plus build and twine
+```
 
 ### Dependencies
 
-Requires **Python >= 3.13**.
+Requires **Python >= 3.13**. Dependencies are declared **only** in
+[`pyproject.toml`](pyproject.toml) — there is no `requirements.txt` to keep in sync.
 
 | Package | This fork | Upstream 0.21.0 |
 |---|---|---|
@@ -106,6 +126,15 @@ Requires **Python >= 3.13**.
 
 Extras: `distributed` → `pympler`, `tdigest`. `ecos` → `ecos`.
 `test` → `coverage`, `ecos`, `flake8`, `pyarrow`, `pympler`, `pytest`, `tdigest`.
+`dev` → all extras plus `build`, `twine`.
+
+### Building a release
+
+```bash
+python -m build                   # sdist + wheel into dist/
+python -m twine check --strict dist/*
+python -m twine upload dist/*     # requires a PyPI token
+```
 
 ---
 
@@ -183,8 +212,8 @@ Upstream's documentation and tutorials apply unchanged to this fork:
 
 | | |
 |---|---|
-| ![binning binary](doc/source/_images/binning_binary.png) | ![binning data stream](doc/source/_images/binning_data_stream.gif) |
-| ![binning 2d](doc/source/_images/binning_2d_readme.png) | ![binning 2d woe](doc/source/_images/binning_2d_readme_woe.png) |
+| ![binning binary](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_binary.png) | ![binning data stream](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_data_stream.gif) |
+| ![binning 2d](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_2d_readme.png) | ![binning 2d woe](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_2d_readme_woe.png) |
 
 ---
 
@@ -256,7 +285,7 @@ corresponds to the binning table index.
 >>> optb.binning_table.plot(metric="woe")
 ```
 
-![binning woe](doc/source/_images/binning_readme_example_woe.png)
+![binning woe](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_readme_example_woe.png)
 
 Optionally, show the binning plot with the actual bin widths:
 
@@ -264,7 +293,7 @@ Optionally, show the binning plot with the actual bin widths:
 >>> optb.binning_table.plot(metric="woe", style="actual", add_special=False, add_missing=False)
 ```
 
-![binning split woe](doc/source/_images/binning_readme_example_split_woe.png)
+![binning split woe](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_readme_example_split_woe.png)
 
 Now transform the original data into WoE or event rate values. Note that `transform`
 returns a **metric**, not bin indices:
@@ -440,7 +469,7 @@ As with 1D binning, you can generate a 2D histogram to visualize WoE and event r
 >>> optb.binning_table.plot(metric="event_rate")
 ```
 
-![binning 2d example](doc/source/_images/binning_2d_readme_example.png)
+![binning 2d example](https://raw.githubusercontent.com/dennisdeh/optbinning-slim/master/assets/binning_2d_readme_example.png)
 
 ---
 
