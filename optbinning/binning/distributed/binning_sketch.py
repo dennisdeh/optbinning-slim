@@ -559,12 +559,25 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         """
         return self.get_params() == optbsketch.get_params()
 
-    def plot_progress(self):
-        """Plot divergence measure progress."""
+    def plot_progress(self, savefig=None, save_kwargs=None):
+        """Plot divergence measure progress.
+
+        Parameters
+        ----------
+        savefig : str or None (default=None)
+            Path to save the plot figure. The figure is shown instead when
+            None, which blocks on an interactive matplotlib backend.
+
+        save_kwargs : dict or None (default=None)
+            Additional keyword arguments to be passed to
+            `matplotlib.pyplot.savefig
+            <https://matplotlib.org/stable/api/_as_gen/
+            matplotlib.pyplot.savefig.html>`_.
+        """
         self._check_is_solved()
 
         df = pd.DataFrame.from_dict(self._solve_stats).T
-        plot_progress_divergence(df, self.divergence)
+        plot_progress_divergence(df, self.divergence, savefig, save_kwargs)
 
     def solve(self):
         """Solve optimal binning using added data.

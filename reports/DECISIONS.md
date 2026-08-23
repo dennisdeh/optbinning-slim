@@ -323,3 +323,24 @@ serves the same `README.md` as the long description.
 `optbinning.egg-info/` was deleted from the checkout. It is build metadata, is matched
 by `*.egg-info/` in `.gitignore`, and was never tracked; an editable install
 regenerates it (as `optbinning_slim.egg-info/` now).
+
+## `plot_progress` takes `savefig`, unlike upstream's
+
+*Last updated: 2026-08-23*
+
+`OptimalBinningSketch.plot_progress` called `plt.show()` unconditionally and
+took no arguments, so on an interactive backend it blocked until the window was
+closed and there was no way to use it from a script or a test. Measured
+2026-08-23 on this machine (matplotlib backend `tkagg`, `DISPLAY=:0`), the test
+covering it took **1163 s of a 1344 s** suite; the same test now runs in 0.6 s.
+
+It now takes `savefig` and `save_kwargs` and validates them exactly as
+`BinningTable.plot` and every other plot method in the library do — string path
+or `TypeError`, dict or `TypeError`, `plt.savefig(...)` then `plt.close()`.
+`savefig=None` still shows the figure, so the default behaviour is unchanged
+and this is additive for existing callers.
+
+This is a divergence from upstream, which still has the no-argument version.
+Pinned by `tests/test_binning_sketch.py::test_plot_progress` for the file path
+and the two type guards, and `::test_plot_progress_show` for the display branch,
+which stubs `plt.show` so it cannot block.

@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_progress_divergence(df, divergence):
+def plot_progress_divergence(df, divergence, savefig=None, save_kwargs=None):
     n = len(df)
     n_add = df.n_add
     n_records = df.n_records
@@ -39,4 +39,18 @@ def plot_progress_divergence(df, divergence):
     plt.ylabel("Divergence: {}".format(divergence), fontsize=12)
     plt.legend(fontsize=12)
 
-    plt.show()
+    if savefig is None:
+        plt.show()
+    else:
+        if not isinstance(savefig, str):
+            raise TypeError("savefig must be a string path; got {}."
+                            .format(savefig))
+        if save_kwargs is None:
+            save_kwargs = {}
+        else:
+            if not isinstance(save_kwargs, dict):
+                raise TypeError("save_kwargs must be a dictionary; got {}."
+                                .format(save_kwargs))
+
+        plt.savefig(savefig, **save_kwargs)
+        plt.close()

@@ -274,15 +274,34 @@ def test_verbose():
     assert optb.status == "OPTIMAL"
 
 
-def test_plot_progress(monkeypatch):
+def test_plot_progress(tmp_path):
     optb = OptimalBinningSketch(name=variable)
     optb.add(x[:300], y[:300])
     optb.add(x[300:], y[300:])
     optb.solve()
 
-    # plot_progress has no savefig option and always calls plt.show(), which
-    # blocks on an interactive backend until the window is closed. Stub it out:
-    # the point is to exercise plot_progress_divergence, not the GUI.
+    path = tmp_path / "progress.png"
+    optb.plot_progress(savefig=str(path))
+
+    assert path.stat().st_size
+
+    optb.plot_progress(savefig=str(tmp_path / "progress_dpi.png"),
+                       save_kwargs={"dpi": 50})
+
+    with raises(TypeError):
+        optb.plot_progress(savefig=1)
+
+    with raises(TypeError):
+        optb.plot_progress(savefig=str(path), save_kwargs="not a dict")
+
+
+def test_plot_progress_show(monkeypatch):
+    optb = OptimalBinningSketch(name=variable)
+    optb.add(x, y)
+    optb.solve()
+
+    # savefig=None shows the figure, which blocks on an interactive backend
+    # until the window is closed, so the display call is stubbed out here.
     monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
 
     optb.plot_progress()
