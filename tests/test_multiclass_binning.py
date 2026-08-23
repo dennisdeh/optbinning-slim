@@ -238,3 +238,17 @@ def test_string_dtype_not_numerical():
     optb = MulticlassOptimalBinning(name="x")
     with raises(ValueError, match="must be numerical"):
         optb.fit(x_str, y)
+
+
+def test_json_round_trip(tmp_path):
+    optb = MulticlassOptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    path = str(tmp_path / "multiclass_binning.json")
+    optb.to_json(path)
+
+    optb_json = MulticlassOptimalBinning(name=variable)
+    optb_json.read_json(path)
+
+    assert optb_json.splits == approx(optb.splits, rel=1e-12)
+    assert optb_json.transform(x) == approx(optb.transform(x), rel=1e-12)

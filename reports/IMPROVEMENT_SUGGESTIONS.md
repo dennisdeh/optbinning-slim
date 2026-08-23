@@ -5,6 +5,14 @@ The code is correct and could be better. Not defects — those go to
 
 *Last updated: 2026-08-23*
 
+- **Coverage is 87%; the next gains are in four files.** Measured 2026-08-23
+  after the coverage pass, the largest remaining gaps outside `ls.py` (which is
+  unreachable — see `DECISIONS.md`) are `binning_statistics.py` (182 missed),
+  `binning_process.py` (92), `continuous_binning.py` (82) and `cp.py` (59).
+  They are mostly `information()` reporting paths and solver-specific branches
+  rather than untested logic, so the yield per test is lower than what the
+  2026-08-23 pass found.
+
 - **Dependencies are declared three times.** `setup.py` (`install_requires` /
   `extras_require`), `requirements.txt` and `test_requirements.txt` all list
   them, and CI installs the latter two before installing the package. Any

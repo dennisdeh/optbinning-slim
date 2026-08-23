@@ -277,3 +277,17 @@ def test_verbose():
     optb.fit(x, y)
 
     assert optb.status == "OPTIMAL"
+
+
+def test_json_round_trip(tmp_path):
+    optb = ContinuousOptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    path = str(tmp_path / "continuous_binning.json")
+    optb.to_json(path)
+
+    optb_json = ContinuousOptimalBinning(name=variable)
+    optb_json.read_json(path)
+
+    assert optb_json.splits == approx(optb.splits, rel=1e-12)
+    assert optb_json.transform(x) == approx(optb.transform(x), rel=1e-12)

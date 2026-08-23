@@ -5,6 +5,9 @@ ContinuousOptimalPWBinning testing.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2022
 
+from contextlib import redirect_stdout
+from io import StringIO
+
 import numpy as np
 import pandas as pd
 
@@ -91,3 +94,22 @@ def test_verbose():
     optb.fit(x, y)
 
     assert optb.status == "OPTIMAL"
+
+
+def test_binning_table_analysis():
+    optb = ContinuousOptimalPWBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    optb.binning_table.analysis(print_output=False)
+
+    # PWContinuousBinningTable exposes no properties for what analysis()
+    # computes — unlike its three sibling tables — so the report itself is
+    # the only public surface to assert on. See reports/OPEN_ITEMS.md.
+    with StringIO() as buf, redirect_stdout(buf):
+        optb.binning_table.analysis()
+        report = buf.getvalue()
+
+    assert "R^2" in report
+    assert "Quality score" in report
+    assert "Significance tests" in report

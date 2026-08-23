@@ -570,3 +570,75 @@ def test_verbose():
     optb.fit(x, y)
 
     assert optb.status == "OPTIMAL"
+
+
+def test_json_round_trip(tmp_path):
+    optb = OptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    path = str(tmp_path / "binning.json")
+    optb.to_json(path)
+
+    optb_json = OptimalBinning(name=variable)
+    optb_json.read_json(path)
+
+    # read_json used to restore the binning table only, leaving the estimator
+    # without splits: transform raised TypeError and splits returned None.
+    assert optb_json.splits == approx(optb.splits, rel=1e-12)
+    assert optb_json.transform(x, metric="woe") == approx(
+        optb.transform(x, metric="woe"), rel=1e-12)
+    assert optb_json.transform(x, metric="event_rate") == approx(
+        optb.transform(x, metric="event_rate"), rel=1e-12)
+
+
+def test_to_dict():
+    optb = OptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    opt_bin_dict = optb.to_dict()
+
+    assert opt_bin_dict["name"] == variable
+    assert opt_bin_dict["dtype"] == "numerical"
+    assert opt_bin_dict["splits"] == approx(optb.splits.tolist(), rel=1e-12)
+    assert sum(opt_bin_dict["n_event"]) + sum(
+        opt_bin_dict["n_nonevent"]) == len(x)
+
+
+def test_binning_table_plot_style_actual(tmp_path):
+    optb = OptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    optb.binning_table.plot(
+        style="actual", savefig=str(tmp_path / "actual.png"))
+    optb.binning_table.plot(
+        metric="event_rate", style="actual",
+        savefig=str(tmp_path / "actual_event_rate.png"))
+
+
+def test_binning_table_plot_without_special_missing(tmp_path):
+    optb = OptimalBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    optb.binning_table.plot(
+        add_special=False, add_missing=False,
+        savefig=str(tmp_path / "no_special_no_missing.png"))
+    optb.binning_table.plot(
+        show_bin_labels=True, savefig=str(tmp_path / "bin_labels.png"))
+
+
+def test_binning_table_plot_categorical(tmp_path):
+    x_cat = np.array(["a", "b", "c", "d"] * (len(y) // 4) +
+                     ["a"] * (len(y) % 4))
+
+    optb = OptimalBinning(name="categorical", dtype="categorical")
+    optb.fit(x_cat, y)
+
+    optb.binning_table.build()
+    optb.binning_table.plot(savefig=str(tmp_path / "categorical.png"))
+
+    # style="actual" needs the real x axis, which categorical bins do not have
+    with raises(ValueError):
+        optb.binning_table.plot(
+            style="actual", savefig=str(tmp_path / "categorical_actual.png"))

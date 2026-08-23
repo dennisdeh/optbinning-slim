@@ -1051,3 +1051,5 @@ class ContinuousOptimalBinning(OptimalBinning):
                 cont_table_attr[key] = np.array(cont_table_attr[key])
 
         self._binning_table = ContinuousBinningTable(**cont_table_attr)
+
+        self._restore_from_binning_table()

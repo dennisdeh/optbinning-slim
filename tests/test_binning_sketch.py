@@ -271,3 +271,13 @@ def test_verbose():
     optb.solve()
 
     assert optb.status == "OPTIMAL"
+
+
+def test_plot_progress():
+    optb = OptimalBinningSketch(name=variable)
+    optb.add(x[:300], y[:300])
+    optb.add(x[300:], y[300:])
+    optb.solve()
+
+    # covers optbinning.binning.distributed.plots.plot_progress_divergence
+    optb.plot_progress()

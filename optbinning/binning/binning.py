@@ -1186,6 +1186,35 @@ class OptimalBinning(BaseOptimalBinning):
 
         return self._status
 
+    # Binning table attribute -> the estimator attribute transform() reads.
+    _restored_from_table = (
+        ("splits", "_splits_optimal"),
+        ("n_event", "_n_event"),
+        ("n_nonevent", "_n_nonevent"),
+        ("n_records", "_n_records"),
+        ("sums", "_sums"),
+        ("categories", "_categories"),
+        ("cat_others", "_cat_others"),
+        ("dtype", "dtype"),
+        ("special_codes", "special_codes"),
+    )
+
+    def _restore_from_binning_table(self):
+        """Restore the fitted state that ``read_json`` does not rebuild.
+
+        ``read_json`` reconstructs the binning table, but ``transform`` and
+        ``splits`` read the estimator's own attributes. Without this a loaded
+        estimator raises ``TypeError: object of type 'NoneType' has no len()``.
+        Categorical bins are not restored — the saved file holds the grouped
+        categories, not the split positions ``bin_categorical`` needs. See
+        reports/OPEN_ITEMS.md.
+        """
+        table = self._binning_table
+
+        for table_attr, self_attr in self._restored_from_table:
+            if hasattr(table, table_attr):
+                setattr(self, self_attr, getattr(table, table_attr))
+
     def to_dict(self):
         """
         Convert optimal bins and/or splits points and transformation depending on
@@ -1254,3 +1283,5 @@ class OptimalBinning(BaseOptimalBinning):
                 bin_table_attr[key] = np.array(bin_table_attr[key])
 
         self._binning_table = BinningTable(**bin_table_attr)
+
+        self._restore_from_binning_table()

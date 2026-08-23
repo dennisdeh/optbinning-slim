@@ -279,3 +279,33 @@ def test_verbose():
     optb.fit(x, y)
 
     assert optb.status == "OPTIMAL"
+
+
+def test_binning_table_analysis():
+    optb = OptimalPWBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    optb.binning_table.analysis(print_output=False)
+
+    assert optb.binning_table.gini == approx(0.87503342, rel=1e-4)
+    assert optb.binning_table.js >= 0
+    assert optb.binning_table.quality_score >= 0
+
+    with raises(ValueError):
+        optb.binning_table.analysis(pvalue_test="new_test",
+                                    print_output=False)
+
+    with raises(ValueError):
+        optb.binning_table.analysis(n_samples=0, print_output=False)
+
+
+def test_binning_table_analysis_fisher():
+    optb = OptimalPWBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+    optb.binning_table.analysis(pvalue_test="fisher", n_samples=50,
+                                print_output=False)
+
+    assert optb.binning_table.gini == approx(0.87503342, rel=1e-4)

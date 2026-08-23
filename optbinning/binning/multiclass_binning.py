@@ -927,3 +927,5 @@ class MulticlassOptimalBinning(OptimalBinning):
                 multi_table_attr[key] = np.array(multi_table_attr[key])
 
         self._binning_table = MulticlassBinningTable(**multi_table_attr)
+
+        self._restore_from_binning_table()

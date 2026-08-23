@@ -124,3 +124,89 @@ badge, no workflow, no documentation.
 Removed 2026-08-23 at the maintainer's request. If Travis is ever wanted again,
 write a new file rather than reviving this one; every version and platform in it
 was obsolete.
+
+## `read_json` restores the estimator state, not just the table
+
+*Last updated: 2026-08-23*
+
+`read_json` set `_is_fitted = True` and rebuilt the binning table, but
+`transform` and `splits` read the estimator's own attributes, which stayed
+`None`. A loaded estimator therefore returned `None` from `.splits` and raised
+`TypeError: object of type 'NoneType' has no len()` from `.transform` — that is,
+persistence did not survive a round trip in any of the three estimators that
+offer it.
+
+`OptimalBinning._restore_from_binning_table` now copies back what the table
+carries, driven by the `_restored_from_table` mapping, and all three
+`read_json` methods call it. The mapping is `hasattr`-guarded because the three
+tables carry different statistics: binary has `n_event`/`n_nonevent`,
+continuous has `n_records`/`sums`, multiclass has `n_event` only.
+
+`dtype` and `special_codes` are constructor parameters, and restoring them from
+the file mutates them on load. That is deliberate: a loaded estimator must
+describe the bins in the file, not the arguments that happened to be passed to
+`__init__`. The categorical case cannot be restored at all — see
+`OPEN_ITEMS.md`.
+
+Pinned by `test_json_round_trip` in `tests/test_binning.py`,
+`tests/test_continuous_binning.py` and `tests/test_multiclass_binning.py`, all
+three red before the change.
+
+## `Logger.close` is correct, despite appearing to iterate what it mutates
+
+*Last updated: 2026-08-23*
+
+```python
+for handler in self.logger.handlers:
+    handler.close()
+    self.logger.removeHandler(handler)
+```
+
+This reads as the classic mutate-while-iterating bug that would skip the second
+handler and leak the file handle. It is not one on this project's supported
+Pythons: since 3.13, `logging.Logger.removeHandler` **replaces** the handler
+list rather than mutating it, so the `for` loop keeps iterating the original
+list and visits every handler. Verified 2026-08-23 on 3.13.15 by watching
+`id(logger.handlers)` change on each removal; both handlers are removed.
+
+It *would* skip on 3.12 and earlier, where the list is mutated in place, but
+`python_requires` is `>=3.13`. Pinned by `tests/test_logging.py::test_close`.
+Do not "fix" it by iterating a copy without first checking the Python floor.
+
+## MDLP split values are interpolated, so literal expectations are fragile
+
+*Last updated: 2026-08-23*
+
+`tests/test_mdlp.py` had its only two algorithmic tests commented out, leaving
+the recursion, the split search and the stopping criterion at 33% coverage.
+They were not restored with their literal values: those values no longer hold
+(measured 2026-08-23, default `MDLP` on breast-cancer "mean radius" gives 7
+splits where the commented test expected 6, and the shared values differ in the
+third decimal).
+
+The reason is in `_find_split`: when there are more candidates than
+`max_candidates`, it takes `np.percentile(u_x, percentiles)` of the candidate
+midpoints. Percentile interpolation returns values *between* midpoints, so the
+split points are not observed midpoints and they move with numpy's
+interpolation. Any value between two adjacent observations induces the same
+partition, so this is not a defect — but it does mean a literal expectation
+pins numpy, not optbinning.
+
+The replacements assert properties instead: splits are strictly increasing,
+strictly inside the range of x, each one actually partitions the sample, no leaf
+is smaller than `min_samples_leaf`, a separable target yields exactly one split
+at the boundary, a single-class target yields none, and `min_samples_leaf >= n`
+yields none.
+
+## `solver="ls"` cannot be covered by the test suite
+
+*Last updated: 2026-08-23*
+
+`optbinning/binning/ls.py` sits at 9% coverage and will stay there. It imports
+`localsolver`, the Python API of Hexaly (formerly LocalSolver), a commercial
+solver that is not on PyPI and needs a licence. The module guards the import
+with `LOCALSOLVER_AVAILABLE`, so the package imports fine without it, but every
+line of `BinningLS` below the constructor is unreachable in CI.
+
+Do not "improve" this number: any test that exercises it would either need the
+licence or mock the solver so thoroughly that it tests the mock.
