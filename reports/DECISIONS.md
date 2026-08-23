@@ -198,19 +198,6 @@ is smaller than `min_samples_leaf`, a separable target yields exactly one split
 at the boundary, a single-class target yields none, and `min_samples_leaf >= n`
 yields none.
 
-## `solver="ls"` cannot be covered by the test suite
-
-*Last updated: 2026-08-23*
-
-`optbinning/binning/ls.py` sits at 9% coverage and will stay there. It imports
-`localsolver`, the Python API of Hexaly (formerly LocalSolver), a commercial
-solver that is not on PyPI and needs a licence. The module guards the import
-with `LOCALSOLVER_AVAILABLE`, so the package imports fine without it, but every
-line of `BinningLS` below the constructor is unreachable in CI.
-
-Do not "improve" this number: any test that exercises it would either need the
-licence or mock the solver so thoroughly that it tests the mock.
-
 ## The five 2026-08-23 defects, and how each was resolved
 
 *Last updated: 2026-08-23*
@@ -263,11 +250,16 @@ While mapping the last one, `OptimalBinningSketch`'s docstring was found to
 advertise `solver="ls"` although its `_check_parameters` allows only `"cp"` and
 `"mip"`. The docstring was corrected.
 
-## `solver="ls"` is dead code: the dependency cannot be installed
+## `solver="ls"` and the LocalSolver integration were removed
 
 *Last updated: 2026-08-23*
 
-Investigated 2026-08-23. `optbinning/binning/ls.py` imports `localsolver`, and:
+`optbinning/binning/ls.py` is deleted, `OptimalBinning` accepts `("cp", "mip")`
+only, and `information.py` no longer carries the `LSStatistics` import guard or
+its two `solver_type == "ls"` branches. This is a divergence from upstream,
+which still ships the integration.
+
+Why, established by the investigation on 2026-08-23:
 
 - **`localsolver` is not on PyPI.** `pip index versions localsolver` returns
   `No matching distribution found`. It was only ever distributed through the
@@ -276,17 +268,23 @@ Investigated 2026-08-23. `optbinning/binning/ls.py` imports `localsolver`, and:
   Hexaly; `hexaly` *is* on PyPI (15.0.20260812). Inspecting that wheel, its only
   top-level package is `hexaly` (`hexaly/optimizer.py`, `libhexaly150.so`) —
   there is no `localsolver` compatibility module, so
-  `from localsolver import LocalSolver` cannot be satisfied by it.
+  `from localsolver import LocalSolver` could not be satisfied by it either.
 
-So `solver="ls"` cannot be exercised by anyone installing this package from
-PyPI today, which is why `ls.py` sits at 9% coverage and why no test covers it.
-It is guarded: `LOCALSOLVER_AVAILABLE` is False, the package imports fine, and
-choosing the solver raises `ImportError` with a message naming the
-alternatives.
+So the option was unusable for anyone installing this package, which is why
+`ls.py` sat at 9% coverage with no test able to reach it: 203 statements whose
+only reachable line was the `ImportError` guard.
 
-Its footprint is small and contained — the removal plan is in
-`IMPROVEMENT_SUGGESTIONS.md`. Removing it is a public-API change and has not
-been done.
+What went, in full: `ls.py`; in `binning.py` the `BinningLS` import, the
+`("cp", "ls", "mip")` allowed list, the `elif self.solver == "ls"` dispatch and
+four docstring mentions — including the note that `max_pvalue` was unsupported
+under `"ls"` and the advice to raise `max_n_prebins` above 100 only with it, both
+of which now describe nothing. Nothing in `tests/` referenced the solver; the
+suite gained `tests/test_binning.py::test_params`' check that `solver="ls"` is
+now rejected with `Invalid value for solver`.
+
+Reintroducing it means restoring `ls.py` from history (`git show <rev>:optbinning/binning/ls.py`)
+and porting it to the `hexaly` API, which cannot be tested here without a
+licence. Prefer leaving it out.
 
 ## Packaging: `pyproject.toml` only, `environment.yml` for conda, no `doc/`
 

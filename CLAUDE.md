@@ -83,9 +83,10 @@ conda activate optbinning
 - **`_is_fitted` and `_check_is_fitted()`** (`optbinning/binning/base.py`) are the
   fitted-state protocol — not sklearn's `check_is_fitted`. Not fitted raises
   `NotFittedError`.
-- **`solver` is a string enum, per estimator:** `"cp"`, `"ls"`, `"mip"` (and
-  `mip_solver` in `("bop", "cbc")`). Adding a solver means touching the checker, the
-  dispatch in `fit`, and the corresponding `*_cp.py` / `*_mip.py` / `ls.py` model.
+- **`solver` is a string enum, per estimator:** `"cp"`, `"mip"` (and `mip_solver` in
+  `("bop", "cbc")`). Adding a solver means touching the checker, the dispatch in `fit`,
+  and the corresponding `*_cp.py` / `*_mip.py` model. `"ls"` (LocalSolver) was removed
+  on 2026-08-23 — see `reports/DECISIONS.md` before reintroducing it.
 - **`transform` returns a *metric*, not bin indices** — `metric="woe"` by default, with
   `metric_special` / `metric_missing` controlling the special-code and missing buckets.
   Changing a default here changes downstream `Scorecard` numbers.

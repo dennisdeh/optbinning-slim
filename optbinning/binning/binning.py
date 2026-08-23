@@ -26,7 +26,6 @@ from .binning_statistics import BinningTable
 from .binning_statistics import target_info_samples
 from .binning_statistics import target_info_special
 from .cp import BinningCP
-from .ls import BinningLS
 from .mip import BinningMIP
 from .prebinning import PreBinning
 from .preprocessing import preprocessing_user_splits_categorical
@@ -59,9 +58,9 @@ def _check_parameters(name, dtype, prebinning_method, solver, divergence,
                          'values are "cart", "mdlp", "quantile" '
                          'and "uniform".')
 
-    if solver not in ("cp", "ls", "mip"):
+    if solver not in ("cp", "mip"):
         raise ValueError('Invalid value for solver. Allowed string '
-                         'values are "cp", "ls" and "mip".')
+                         'values are "cp" and "mip".')
 
     if divergence not in ("iv", "js", "hellinger", "triangular"):
         raise ValueError('Invalid value for divergence. Allowed string '
@@ -313,9 +312,8 @@ class OptimalBinning(BaseOptimalBinning):
 
     solver : str, optional (default="cp")
         The optimizer to solve the optimal binning problem. Supported solvers
-        are "mip" to choose a mixed-integer programming solver, "cp" to choose
-        a constrained programming solver or "ls" to choose `LocalSolver
-        <https://www.localsolver.com/>`_.
+        are "mip" to choose a mixed-integer programming solver and "cp" to
+        choose a constrained programming solver.
 
     divergence : str, optional (default="iv")
         The divergence measure in the objective function to be maximized.
@@ -380,9 +378,7 @@ class OptimalBinning(BaseOptimalBinning):
         monotonic constraint is disabled.
 
     min_event_rate_diff : float, optional (default=0)
-        The minimum event rate difference between consecutives bins. For solver
-        "ls", this option currently only applies when monotonic_trend is
-        “ascending”, “descending”, “peak_heuristic” or “valley_heuristic”.
+        The minimum event rate difference between consecutives bins.
 
     max_pvalue : float or None, optional (default=None)
         The maximum p-value among bins. The Z-test is used to detect bins
@@ -473,15 +469,11 @@ class OptimalBinning(BaseOptimalBinning):
     The parameter values ``max_n_prebins`` and ``min_prebin_size`` control
     complexity and memory usage. The default values generally produce quality
     results, however, some improvement can be achieved by increasing
-    ``max_n_prebins`` and/or decreasing ``min_prebin_size``. A parameter value
-    ``max_n_prebins`` greater than 100 is only recommended if ``solver="ls"``.
+    ``max_n_prebins`` and/or decreasing ``min_prebin_size``.
 
     The pre-binning refinement phase guarantee that no prebin has either zero
     counts of non-events or events by merging those pure prebins. Pure bins
     produce infinity WoE and IV measures.
-
-    The mathematical formulation when ``solver="ls"`` does **not** currently
-    support the ``max_pvalue`` constraint.
     """
     def __init__(self, name="", dtype="numerical", prebinning_method="cart",
                  solver="cp", divergence="iv", max_n_prebins=20,
@@ -1053,14 +1045,6 @@ class OptimalBinning(BaseOptimalBinning):
                                    self.max_pvalue_policy, self.gamma,
                                    self.user_splits_fixed, self.mip_solver,
                                    self.time_limit)
-        elif self.solver == "ls":
-            optimizer = BinningLS(monotonic, self.min_n_bins, self.max_n_bins,
-                                  min_bin_size, max_bin_size,
-                                  min_bin_n_event, self.max_bin_n_event,
-                                  min_bin_n_nonevent, self.max_bin_n_nonevent,
-                                  self.min_event_rate_diff, self.max_pvalue,
-                                  self.max_pvalue_policy,
-                                  self.user_splits_fixed, self.time_limit)
 
         if self.verbose:
             logger.info("Optimizer: build model...")

@@ -42,6 +42,11 @@ def test_params():
         optb = OptimalBinning(solver="new_solver")
         optb.fit(x, y)
 
+    # "ls" (LocalSolver) was removed on 2026-08-23; see reports/DECISIONS.md
+    with raises(ValueError, match="Invalid value for solver"):
+        optb = OptimalBinning(solver="ls")
+        optb.fit(x, y)
+
     with raises(ValueError):
         optb = OptimalBinning(divergence="new_divergence")
         optb.fit(x, y)

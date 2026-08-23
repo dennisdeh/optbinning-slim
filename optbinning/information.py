@@ -11,12 +11,6 @@ from sklearn.base import BaseEstimator
 
 from ._version import __version__
 
-try:
-    from localsolver import LSStatistics
-    LOCALSOLVER_AVAILABLE = True
-except ImportError:
-    LOCALSOLVER_AVAILABLE = False
-
 
 def print_header():
     header = (
@@ -70,15 +64,6 @@ def solver_statistics(solver_type, solver):
         d_solver["objective"] = solver.Objective().Value()
         d_solver["best_bound"] = solver.Objective().BestBound()
 
-    elif solver_type == "ls":
-        if not LOCALSOLVER_AVAILABLE:
-            raise ImportError('Cannot import localsolver. Install LocalSolver '
-                              'or choose another solver, options are "cp" and '
-                              '"mip".')
-
-        d_solver["n_iterations"] = LSStatistics.get_nb_iterations(
-            solver.statistics)
-
     elif solver_type == "lp":
         d_solver["n_variables"] = solver.n_variables
         d_solver["n_constraints"] = solver.n_constraints
@@ -108,13 +93,6 @@ def print_solver_statistics(solver_type, d_solver):
             "    Number of constraints         {:>10}\n"
             "    Objective value               {:>10.4f}\n"
             "    Best objective bound          {:>10.4f}\n"
-            ).format(solver_type, *d_solver.values())
-
-    elif solver_type == "ls":
-        solver_stats = (
-            "  Solver statistics\n"
-            "    Type                          {:>10}\n"
-            "    Number of iterations          {:>10}\n"
             ).format(solver_type, *d_solver.values())
 
     elif solver_type == "lp":
