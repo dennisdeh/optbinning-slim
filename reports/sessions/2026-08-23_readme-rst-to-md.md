@@ -68,13 +68,21 @@ not this session's.
 
 ## Repository state at the end of this session
 
-Committed on branch `deps-python313`: `README.md` added, `README.rst` deleted. Nothing
-else — the branch's uncommitted dependency work (`setup.py`, `requirements.txt`,
-`test_requirements.txt`, `.github/workflows/python-package.yml`), the piecewise changes
-and the regenerated `tests/results/` artifacts were all left as they were found.
+While this session was running, the dependency work was committed and merged by the
+repository owner: `fa7c297` "Update dependencies, require Python >= 3.13, accept the
+clarabel solver" landed, `deps-python313` was merged into `master` and deleted, and the
+README commit `e07ce6a` landed directly on `master`.
 
-**Not merged into `master`.** The README describes Python >= 3.13, the raised dependency
-floors and the 3.13/3.14 CI matrix, none of which are committed yet — on `master`,
-`requirements.txt` still pins `ortools>=9.4,<9.12` and `python_requires='>=3.7'`.
-Merging the README ahead of the work it describes would put a false claim on `master`.
-The merge should happen once the dependency commit lands.
+The README therefore describes committed state, not pending state. `master` at the end
+of this session carries `python_requires='>=3.13'`, `ortools>=9.14` with no upper cap,
+and the 3.13/3.14 CI matrix, all of which the README documents. `master` was 4 commits
+ahead of `origin/master`; pushing does not work from an agent shell (see `CLAUDE.md`),
+so the push is left to the owner.
+
+The `ecos` extra was re-checked after that merge and is unchanged: it still gates
+`tests/test_binning_piecewise.py::test_solvers`, so the README's description of it
+stands. The clarabel solver newly accepted by `optbinning/binning/piecewise/base.py`
+was added to the README's fork-changes table.
+
+Working tree left clean apart from untracked `.idea/`. The regenerated `tests/results/`
+artifacts produced by this session's coverage run were not committed by this session.

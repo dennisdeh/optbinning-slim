@@ -41,6 +41,7 @@ Despite the name, **`optbinning-slim` is not a reduced version of the library.**
 | **Python** | Requires **>= 3.13**. CI runs **3.13 and 3.14** on Linux, Windows and macOS. Upstream's matrix stops at 3.12. |
 | **Dependencies** | Version floors raised to a current, coherent stack (see [Dependencies](#dependencies)). The `ortools>=9.4,<9.12` upper cap was **dropped** — the fork tracks current OR-Tools. |
 | **Compatibility fixes** | Fixes for behaviour changes in **pandas 3.0** (string dtype detection in `BinningProcess`), **NumPy 2.x** and **scikit-learn 1.7+**. |
+| **Piecewise solvers** | `"clarabel"` is accepted as a solver for the piecewise estimators, alongside `"ecos"`, `"osqp"`, `"direct"`, `"scs"` and `"auto"`. As of `ropwr` 1.2, `"auto"` resolves to `"clarabel"`; before that it resolved to `"ecos"`. |
 | **Packaging** | `setup.py` is being modernised toward `pyproject.toml`; `matplotlib` is a hard requirement rather than an implicit one; `ecos` moved into the `test` extra, because `test_binning_piecewise.py::test_solvers` needs it. |
 
 Divergences from upstream, and the reasoning behind each, are recorded in
