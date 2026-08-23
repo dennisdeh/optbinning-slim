@@ -11,12 +11,12 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dynamic = ["version"]
 
-# The library, its formulation and essentially all of its code are the work of the
-# upstream author; this fork adds no algorithms. See the attribution note in README.md.
+# The library, its formulation and essentially all of its code are the work of
+# Guillermo Navas-Palencia <g.navas.palencia@gmail.com>; this fork adds no algorithms.
+# The attribution is in README.md and in every module header. They are deliberately not
+# listed here: this package is published by the fork maintainer, and naming them as its
+# author would put their address on a distribution they neither uploaded nor control.
 authors = [
-    { name = "Guillermo Navas-Palencia", email = "g.navas.palencia@gmail.com" },
-]
-maintainers = [
     { name = "dennisdeh", email = "dennishansendeh@gmail.com" },
 ]
 
