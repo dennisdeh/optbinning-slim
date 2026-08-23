@@ -17,10 +17,10 @@ The fork has three standing goals, in this order:
 
 1. **Maintenance** — keep parity with upstream, fix bugs, keep it working on current
    Python (the upstream CI matrix stops at 3.12).
-2. **Slim dependencies** — reduce and modernise the dependency surface and packaging
-   (`setup.py` → `pyproject.toml`, matplotlib as a hard requirement). The dependency
-   floors were raised and the `ortools` upper cap dropped on 2026-08-23; the fork
-   requires Python >= 3.13.
+2. **Slim dependencies** — reduce and modernise the dependency surface and packaging.
+   The dependency floors were raised and the `ortools` upper cap dropped on 2026-08-23;
+   the fork requires Python >= 3.13. `setup.py` became `pyproject.toml` on 2026-08-23,
+   and matplotlib is a hard requirement.
 3. **No feature removal.** Despite the repo name, **do not strip subsystems.**
    `distributed`/sketch, `uncertainty`, `counterfactual`, `multidimensional`,
    `piecewise` and the plotting methods all stay. Everything exported from
@@ -49,9 +49,8 @@ conda activate optbinning
   fresh machine — create it, do not silently fall back to another env:
 
   ```bash
-  conda create -n optbinning python=3.13 -y
+  conda env create -f environment.yml   # from the repo root; installs the project itself
   conda activate optbinning
-  pip install -e ".[distributed,test]"
   ```
 
 - **Ignore `.venv/`.** There is a gitignored `.venv/` (Python 3.14.4) in the checkout
@@ -59,11 +58,17 @@ conda activate optbinning
   `.venv/bin/python` produces `ModuleNotFoundError` and wastes a turn.
 - There is also a `optbinning314` conda env (Python 3.14.7), kept to check the upper
   end of the supported range. `optbinning` is the one to use by default.
-- Dependency definitions live in `setup.py` (`install_requires` / `extras_require`) and
-  are duplicated in `requirements.txt` + `test_requirements.txt`, which is what CI
-  installs. **A dependency change must be made in all the places that declare it** —
-  grep for the package name before declaring the change done. There is no
-  `pyproject.toml`, no `setup.cfg`, no pytest/flake8 config file.
+- **Dependencies are declared in exactly one place: `pyproject.toml`** (`project.dependencies`
+  / `project.optional-dependencies`). `requirements.txt` and `test_requirements.txt` are
+  gone — they duplicated that list, and CI now installs the project itself. `environment.yml`
+  recreates the conda env and does not restate a single dependency; it pip-installs
+  `--editable .[dev]`. Change a version floor in `pyproject.toml` and check whether the
+  README's dependency table names it too. There is no `setup.py`, no `setup.cfg`, and no
+  pytest/flake8 config file.
+- **The distribution is `optbinning-slim`; the import package is `optbinning`.** `pip show`
+  and `pip uninstall` want the former, `import` wants the latter. The two distributions
+  claim the same import package, so upstream `optbinning` and this fork must never share
+  an environment.
 - **Run everything from the repo root.** Several tests write to hard-coded relative
   paths (`tests/results/*.png`); from any other directory they fail on a missing
   directory, which reads as a code failure and is not one.
@@ -91,9 +96,10 @@ conda activate optbinning
   attribute.
 - **`status` is the solver's status string**, surfaced verbatim from OR-Tools. Do not
   normalise it — tests assert on `"OPTIMAL"`.
-- The Sphinx documentation in `doc/` is upstream's user-facing documentation. Docstrings
-  are its source. Changing a public signature means changing the docstring in the same
-  commit.
+- **Docstrings are the user-facing documentation this fork carries.** Upstream's Sphinx
+  sources (`doc/`) were dropped on 2026-08-23 — they are maintained upstream and read at
+  <http://gnpalencia.org/optbinning/>. Changing a public signature still means changing
+  its docstring in the same commit; there is no `.rst` in this repository to update.
 
 ---
 
@@ -127,7 +133,7 @@ conda activate optbinning
   background the runner or spawn polling loops unless explicitly agreed.
 
   ```bash
-  pytest                                                        # 20 test modules
+  pytest                                                        # 19 test modules
   flake8 . --count --select=E9,F63,F7,F82 --exclude=.venv --show-source --statistics
   ```
 
@@ -172,7 +178,7 @@ conda activate optbinning
   sibling test module, and the same defect very often exists in a sibling source module.
   Fixing one and not the others is the characteristic failure here.
 - **A scoped grep answers a scoped question.** "Who references this?" is a whole-tree
-  question — including `doc/`, the README, and docstrings.
+  question — including the README, `reports/`, and docstrings.
 - Do not treat a prior session's "already fixed" list as an exclusion list. It is a
   point-in-time record, stale by construction. Judge every path on today's source.
 
@@ -185,8 +191,9 @@ Two locations, and the split is strict:
 - **`reports/`** — *this fork's* development documentation: a small, fixed set of files,
   each answering exactly one **standing** question. Do not add a new top-level file
   without asking. Create the folder and the files below on first use.
-- **`doc/`** — upstream's Sphinx *user* documentation. `.rst` + docstrings. It describes
-  the library to its users; it is not a place for development notes.
+- **Docstrings** — the *user* documentation. They describe the library to its users and
+  are the source Sphinx renders upstream; they are not a place for development notes.
+  There is no `doc/` in this fork.
 
 ### Where a fact goes
 
@@ -196,7 +203,7 @@ Two locations, and the split is strict:
 | the code is correct and could be better | `reports/IMPROVEMENT_SUGGESTIONS.md` |
 | examined, found correct, not to be re-raised | `reports/DECISIONS.md` |
 | what happened in this piece of work | `reports/sessions/YYYY-MM-DD_<slug>.md` |
-| how a public class behaves and what its methods branch on | its docstring, and `doc/` |
+| how a public class behaves and what its methods branch on | its docstring |
 
 `OPEN_ITEMS` vs `IMPROVEMENT_SUGGESTIONS` is *"is something wrong?"*, not *"is something
 worth doing?"*. A finding that turns out to be by design moves to `DECISIONS.md`
@@ -207,7 +214,7 @@ the next upstream merge tractable.
 ### Keeping it current
 
 - **Changing a module means updating every document that describes it, in the same
-  commit** — its docstrings first, then `doc/` and the README if they name it.
+  commit** — its docstrings first, then the README and `reports/` if they name it.
   Documentation that lags the code is worse than none, because it is trusted.
 - **Renaming, inverting or deleting a test is a documentation change.** Documents credit
   tests *by name* with pinning a property; a rename silently breaks the credit.

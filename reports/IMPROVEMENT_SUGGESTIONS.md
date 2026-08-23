@@ -13,13 +13,6 @@ The code is correct and could be better. Not defects — those go to
   rather than untested logic, so the yield per test is lower than what the
   2026-08-23 pass found.
 
-- **Dependencies are declared three times.** `setup.py` (`install_requires` /
-  `extras_require`), `requirements.txt` and `test_requirements.txt` all list
-  them, and CI installs the latter two before installing the package. Any
-  version change has to be made in every copy — the 2026-08-23 dependency
-  update had to touch all three plus the README. Consolidating on a
-  `pyproject.toml` would remove the duplication and is the natural next step of
-  the fork's dependency-slimming goal.
 - **`OptimalBinningSketch.plot_progress` cannot be used non-interactively.**
   It calls `plt.show()` unconditionally and takes no `savefig` argument, unlike
   every other plot method in the library. On an interactive backend it blocks
@@ -63,11 +56,10 @@ What removal touches, in full — the footprint is small:
   "ls"` dispatch, and four docstring or note mentions.
 - `optbinning/information.py` — the `LSStatistics` import guard and the two
   `solver_type == "ls"` branches.
-- `doc/source/tutorials.rst` — the `tutorial_binary_localsolver` entry, and the
-  notebook `doc/source/tutorials/tutorial_binary_localsolver.ipynb`.
 - Nothing in `tests/`: no test names the solver.
-- `doc/source/release_notes.rst` mentions it historically and must be left
-  alone — it is a record of past releases.
+- Nothing in the documentation either, since `doc/` was dropped on 2026-08-23.
+  Before that the footprint also covered `doc/source/tutorials.rst` and the
+  notebook `tutorial_binary_localsolver.ipynb`.
 
 Only `OptimalBinning` is affected. Every other estimator already allows
 `("cp", "mip")` only.
