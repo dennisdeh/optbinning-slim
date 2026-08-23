@@ -598,3 +598,20 @@ def test_dataframe_index():
     X_train = pd.DataFrame(X, columns=variable_names, index=[2 * i for i in range(len(X))])
     X_transform = process.fit_transform(X_train, y, metric="indices")
     pd.testing.assert_index_equal(X_train.index, X_transform.index)
+
+
+def test_string_dtype_variable_is_categorical():
+    # Since pandas 3.0 a column of strings has pandas' string dtype rather
+    # than object dtype; it must still be binned as categorical.
+    df = pd.DataFrame({
+        "var": ["A"] * 100 + ["B"] * 100,
+        "num": np.arange(200, dtype=float)
+    })
+    target = np.array([0] * 90 + [1] * 10 + [0] * 50 + [1] * 50)
+
+    process = BinningProcess(variable_names=["var", "num"])
+    process.fit(df, target)
+
+    dtypes = process.summary().set_index("name")["dtype"]
+    assert dtypes["var"] == "categorical"
+    assert dtypes["num"] == "numerical"

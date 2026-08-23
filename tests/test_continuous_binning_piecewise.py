@@ -49,7 +49,9 @@ def test_fit_transform():
 
 def test_special_codes():
     variable = "INDUS"
-    x = df[variable].values
+    # A copy: since pandas 3.0 ``.values`` is a read-only view of the frame's
+    # buffer, and this test writes special codes into x.
+    x = df[variable].to_numpy(copy=True)
 
     x[:50] = -9
     x[50:100] = -8

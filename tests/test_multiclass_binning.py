@@ -226,3 +226,15 @@ def test_verbose():
     optb.fit(x, y)
 
     assert optb.status == "OPTIMAL"
+
+
+def test_string_dtype_not_numerical():
+    # Pin, not a regression test: split_data normalises pandas' string dtype
+    # (the default for string columns since pandas 3.0) back to object dtype,
+    # so the non-numerical guard still fires. This asserts it keeps doing so.
+    x_str = pd.DataFrame({"x": ["a", "b", "c"] * (len(y) // 3 + 1)}
+                         )["x"].values[:len(y)]
+
+    optb = MulticlassOptimalBinning(name="x")
+    with raises(ValueError, match="must be numerical"):
+        optb.fit(x_str, y)

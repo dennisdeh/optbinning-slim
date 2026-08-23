@@ -309,7 +309,10 @@ def _check_parameters(variable_names, max_n_prebins, min_prebin_size,
 
 
 def _check_variable_dtype(x):
-    return "categorical" if x.dtype == object else "numerical"
+    # Anything not numeric is binned as categorical. Testing ``dtype ==
+    # object`` instead misclassifies pandas string dtype (the default for
+    # string columns since pandas 3.0) as numerical. See DECISIONS.md.
+    return "numerical" if pd.api.types.is_numeric_dtype(x) else "categorical"
 
 
 class BaseBinningProcess:
