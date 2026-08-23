@@ -344,3 +344,21 @@ This is a divergence from upstream, which still has the no-argument version.
 Pinned by `tests/test_binning_sketch.py::test_plot_progress` for the file path
 and the two type guards, and `::test_plot_progress_show` for the display branch,
 which stubs `plt.show` so it cannot block.
+
+## The import order in `optbinning/__init__.py` is load-bearing
+
+*Last updated: 2026-08-23*
+
+`optbinning/__init__.py` imports `.binning` first, which pulls in ortools before
+anything reaches ropwr or cvxpy. That order is not stylistic and must not be
+"tidied": ortools and highspy each ship a `libhighs.so.1` built from a different
+HiGHS version, and the first one loaded wins for the whole process. Prepending
+`import cvxpy` to `__init__.py` on 2026-08-23 made `import optbinning` itself
+raise `libortools.so.9: undefined symbol: ...HighsLogOptions...`. The full
+diagnosis is in `OPEN_ITEMS.md`.
+
+`tests/test_package.py::test_ortools_works_after_importing_optbinning` pins it.
+It runs in a subprocess, because import order only means anything in a fresh
+interpreter, and it solves a small CP-SAT model rather than merely importing —
+an import alone would not prove the solver still works. The probe above makes
+both tests in that file fail, so the check has teeth.

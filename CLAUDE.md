@@ -95,6 +95,10 @@ conda activate optbinning
 - **`binning_table` is a property that builds an object** (`binning_statistics.py`), and
   `.build()` / `.plot()` on it are what tests assert against. It is not a DataFrame
   attribute.
+- **Do not reorder the imports in `optbinning/__init__.py`.** ortools must load
+  before cvxpy/ropwr — they ship colliding `libhighs.so.1` libraries and the first
+  one loaded wins. Getting it wrong makes `import optbinning` itself raise. Pinned by
+  `tests/test_package.py`; the diagnosis is in `reports/OPEN_ITEMS.md`.
 - **`status` is the solver's status string**, surfaced verbatim from OR-Tools. Do not
   normalise it — tests assert on `"OPTIMAL"`.
 - **Docstrings are the user-facing documentation this fork carries.** Upstream's Sphinx
