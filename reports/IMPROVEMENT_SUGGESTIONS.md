@@ -12,11 +12,6 @@ The code is correct and could be better. Not defects — those go to
   update had to touch all three plus the README. Consolidating on a
   `pyproject.toml` would remove the duplication and is the natural next step of
   the fork's dependency-slimming goal.
-- **`.travis.yml` is dead and now contradicts the package.** It targets Travis
-  CI (unused; the badge and the gating suite are GitHub Actions), on
-  `dist: xenial` with Python 3.6/3.7, while `python_requires` is now `>=3.13`.
-  It should be deleted rather than updated, but deleting a top-level file is a
-  decision for the maintainer.
 - **Stale `.venv/` in the checkout** (Python 3.14.4, no packages). It is
   gitignored so it costs nothing in the repository, but flake8 walks it and
   reports ~21 `F821`s from vendored pip code. Deleting it locally would remove

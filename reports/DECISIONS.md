@@ -110,3 +110,17 @@ values — filed in `IMPROVEMENT_SUGGESTIONS.md`.
 Note that `"auto"` is not always Clarabel: on the unconstrained problem in
 `test_solvers` it resolves to the direct solver, which is why that test still
 asserts `rel=1e-6` while `test_solver_clarabel` needs `rel=5e-4`.
+
+## `.travis.yml` is deleted
+
+*Last updated: 2026-08-23*
+
+Upstream still carries `.travis.yml`; this fork does not. It configured Travis
+CI — which the project does not use, the CI badge and the gating suite both
+being GitHub Actions — on `dist: xenial` with Python 3.6 and 3.7, against a
+package that now declares `python_requires>=3.13`. Nothing referenced it: no
+badge, no workflow, no documentation.
+
+Removed 2026-08-23 at the maintainer's request. If Travis is ever wanted again,
+write a new file rather than reviving this one; every version and platform in it
+was obsolete.
