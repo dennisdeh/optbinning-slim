@@ -17,6 +17,8 @@ from ..information import solver_statistics
 from ..logging import Logger
 from .auto_monotonic import auto_monotonic_continuous
 from .auto_monotonic import peak_valley_trend_change_heuristic
+from .binning import _json_value
+from .binning import _restore_json_payload
 from .binning import OptimalBinning
 from .binning_statistics import continuous_bin_info
 from .binning_statistics import ContinuousBinningTable
@@ -1022,9 +1024,12 @@ class ContinuousOptimalBinning(OptimalBinning):
 
         opt_bin_dict['min_x'] = table.min_x
         opt_bin_dict['max_x'] = table.max_x
-        opt_bin_dict['categories'] = table.categories
-        opt_bin_dict['cat_others'] = table.cat_others
-        opt_bin_dict['user_splits'] = table.user_splits
+        opt_bin_dict['categories'] = _json_value(table.categories)
+        opt_bin_dict['cat_others'] = _json_value(table.cat_others)
+        opt_bin_dict['user_splits'] = _json_value(table.user_splits)
+
+        if table.dtype == 'categorical':
+            opt_bin_dict['splits_optimal'] = self._splits_optimal.tolist()
 
         with open(path, "w") as write_file:
             json.dump(opt_bin_dict, write_file)
@@ -1046,10 +1051,8 @@ class ContinuousOptimalBinning(OptimalBinning):
         with open(path, "r") as read_file:
             cont_table_attr = json.load(read_file)
 
-        for key in cont_table_attr.keys():
-            if isinstance(cont_table_attr[key], list):
-                cont_table_attr[key] = np.array(cont_table_attr[key])
+        splits_optimal = _restore_json_payload(cont_table_attr)
 
         self._binning_table = ContinuousBinningTable(**cont_table_attr)
 
-        self._restore_from_binning_table()
+        self._restore_from_binning_table(splits_optimal)

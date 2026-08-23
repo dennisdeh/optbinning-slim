@@ -5,6 +5,8 @@ OptimalBinning testing.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -642,3 +644,43 @@ def test_binning_table_plot_categorical(tmp_path):
     with raises(ValueError):
         optb.binning_table.plot(
             style="actual", savefig=str(tmp_path / "categorical_actual.png"))
+
+
+def test_json_round_trip_categorical(tmp_path):
+    x_cat = np.array(["a", "b", "c", "d"] * (len(y) // 4) +
+                     ["a"] * (len(y) % 4))
+
+    optb = OptimalBinning(name="categorical", dtype="categorical")
+    optb.fit(x_cat, y)
+
+    path = str(tmp_path / "binning_categorical.json")
+    optb.to_json(path)
+
+    # dtype comes from the file, so a default-constructed estimator loads it
+    optb_json = OptimalBinning()
+    optb_json.read_json(path)
+
+    for bin_json, bin_fit in zip(optb_json.splits, optb.splits):
+        assert list(bin_json) == list(bin_fit)
+
+    assert optb_json.transform(x_cat) == approx(
+        optb.transform(x_cat), rel=1e-12)
+
+
+def test_json_categorical_without_split_positions(tmp_path):
+    x_cat = np.array(["a", "b", "c", "d"] * (len(y) // 4) +
+                     ["a"] * (len(y) % 4))
+
+    optb = OptimalBinning(name="categorical", dtype="categorical")
+    optb.fit(x_cat, y)
+
+    path = tmp_path / "binning_categorical_old.json"
+    optb.to_json(str(path))
+
+    # a file written before the split positions were saved
+    payload = json.loads(path.read_text())
+    del payload["splits_optimal"]
+    path.write_text(json.dumps(payload))
+
+    with raises(ValueError):
+        OptimalBinning().read_json(str(path))

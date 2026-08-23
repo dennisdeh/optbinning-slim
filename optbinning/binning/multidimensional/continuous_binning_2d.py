@@ -50,9 +50,11 @@ def _check_parameters(name_x, name_y, dtype_x, dtype_y, prebinning_method,
         raise ValueError('Invalid value for dtype_y. Allowed string '
                          'values is "numerical".')
 
-    if prebinning_method not in ("cart", "mdlp", "quantile", "uniform"):
+    # No "mdlp": MDLP needs a binary target, so PreBinning rejects it for a
+    # continuous one. The 1D ContinuousOptimalBinning excludes it too.
+    if prebinning_method not in ("cart", "quantile", "uniform"):
         raise ValueError('Invalid value for prebinning_method. Allowed string '
-                         'values are "cart", "mdlp", "quantile" '
+                         'values are "cart", "quantile" '
                          'and "uniform".')
 
     if strategy not in ("grid", "cart"):
@@ -185,10 +187,9 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
 
     prebinning_method : str, optional (default="cart")
         The pre-binning method. Supported methods are "cart" for a CART
-        decision tree, "mdlp" for Minimum Description Length Principle (MDLP),
-        "quantile" to generate prebins with approximately same frequency and
-        "uniform" to generate prebins with equal width. Method "cart" uses
-        `sklearn.tree.DecisionTreeRegressor
+        decision tree, "quantile" to generate prebins with approximately same
+        frequency and "uniform" to generate prebins with equal width. Method
+        "cart" uses `sklearn.tree.DecisionTreeRegressor
         <https://scikit-learn.org/stable/modules/generated/sklearn.tree.
         DecisionTreeRegressor.html>`_.
 

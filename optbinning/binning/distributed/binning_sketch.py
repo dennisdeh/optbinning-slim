@@ -249,9 +249,8 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
 
     solver : str, optional (default="cp")
         The optimizer to solve the optimal binning problem. Supported solvers
-        are "mip" to choose a mixed-integer programming solver, "cp" to choose
-        a constrained programming solver or "ls" to choose `LocalSolver
-        <https://www.localsolver.com/>`_.
+        are "mip" to choose a mixed-integer programming solver and "cp" to
+        choose a constrained programming solver.
 
     divergence : str, optional (default="iv")
         The divergence measure in the objective function to be maximized.

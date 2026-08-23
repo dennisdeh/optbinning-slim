@@ -5,6 +5,7 @@ OptimalBinningSketch testing.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -273,11 +274,15 @@ def test_verbose():
     assert optb.status == "OPTIMAL"
 
 
-def test_plot_progress():
+def test_plot_progress(monkeypatch):
     optb = OptimalBinningSketch(name=variable)
     optb.add(x[:300], y[:300])
     optb.add(x[300:], y[300:])
     optb.solve()
 
-    # covers optbinning.binning.distributed.plots.plot_progress_divergence
+    # plot_progress has no savefig option and always calls plt.show(), which
+    # blocks on an interactive backend until the window is closed. Stub it out:
+    # the point is to exercise plot_progress_divergence, not the GUI.
+    monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
+
     optb.plot_progress()

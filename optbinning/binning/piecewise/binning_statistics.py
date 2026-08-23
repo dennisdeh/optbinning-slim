@@ -14,6 +14,7 @@ import pandas as pd
 from scipy import stats
 
 from ...binning.binning_statistics import _check_build_parameters
+from ...binning.binning_statistics import _check_is_analyzed
 from ...binning.binning_statistics import _check_is_built
 from ...binning.binning_statistics import bin_str_format
 from ...binning.binning_statistics import BinningTable
@@ -686,5 +687,22 @@ class PWContinuousBinningTable:
             ).format(metrics_string, self._hhi, self._hhi_norm,
                      self._quality_score, df_tests_string)
 
+        self._is_analyzed = True
+
         if print_output:
             print(report)
+
+    @property
+    def quality_score(self):
+        """The quality score (QS).
+
+        The QS is a rating of the quality and discriminatory power of a
+        variable. The QS ranges from 0 to 1.
+
+        Returns
+        -------
+        quality_score : float
+        """
+        _check_is_analyzed(self)
+
+        return self._quality_score

@@ -102,6 +102,19 @@ class MDLP(BaseEstimator):
         x = check_array(x, ensure_2d=False, ensure_all_finite=True)
         y = check_array(y, ensure_2d=False, ensure_all_finite=True)
 
+        # np.bincount needs integer labels, and a float 0.0/1.0 target is what
+        # a pandas column of a binary target gives.
+        if not np.issubdtype(y.dtype, np.integer):
+            y_int = y.astype(int)
+            if not np.array_equal(y_int, y):
+                raise ValueError("y must hold integer class labels; got "
+                                 "non-integer values.")
+            y = y_int
+
+        if y.min() < 0:
+            raise ValueError("y must hold non-negative class labels; got "
+                             "{}.".format(y.min()))
+
         idx = np.argsort(x)
         x = x[idx]
         y = y[idx]
@@ -120,10 +133,13 @@ class MDLP(BaseEstimator):
         split = self._find_split(u_x, x, y)
 
         if split is not None:
-            self._splits.append(split)
             t = np.searchsorted(x, split, side="right")
 
+            # The MDLP criterion decides whether the split is accepted at all,
+            # not merely whether to keep recursing.
             if not self._terminate(n_x, n_y, y, y[:t], y[t:]):
+                self._splits.append(split)
+
                 self._recurse(x[:t], y[:t], id + 1)
                 self._recurse(x[t:], y[t:], id + 2)
 

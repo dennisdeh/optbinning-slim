@@ -17,6 +17,7 @@ from ..information import solver_statistics
 from ..logging import Logger
 from .auto_monotonic import auto_monotonic
 from .auto_monotonic import peak_valley_trend_change_heuristic
+from .binning import _restore_json_payload
 from .binning import OptimalBinning
 from .binning_statistics import multiclass_bin_info
 from .binning_statistics import MulticlassBinningTable
@@ -922,9 +923,7 @@ class MulticlassOptimalBinning(OptimalBinning):
         with open(path, "r") as read_file:
             multi_table_attr = json.load(read_file)
 
-        for key in multi_table_attr.keys():
-            if isinstance(multi_table_attr[key], list):
-                multi_table_attr[key] = np.array(multi_table_attr[key])
+        _restore_json_payload(multi_table_attr)
 
         self._binning_table = MulticlassBinningTable(**multi_table_attr)
 

@@ -249,6 +249,45 @@ def _check_parameters(name, dtype, prebinning_method, solver, divergence,
         raise TypeError("verbose must be a boolean; got {}.".format(verbose))
 
 
+def _json_value(value):
+    """Make a binning table attribute JSON serializable.
+
+    ``categories``, ``cat_others`` and ``user_splits`` are numpy or pandas
+    arrays; ``json.dump`` refuses both.
+    """
+    if hasattr(value, "tolist"):
+        return value.tolist()
+
+    return value
+
+
+def _restore_json_payload(table_attr):
+    """Rebuild the binning table arguments from a loaded json payload.
+
+    Returns the categorical split positions, which are not a table argument:
+    the table is built from the grouped categories, while the estimator
+    transforms with the positions that produced them.
+    """
+    splits_optimal = table_attr.pop("splits_optimal", None)
+    categorical = table_attr.get("dtype") == "categorical"
+
+    if categorical and splits_optimal is None:
+        raise ValueError(
+            "This file does not carry the split positions of its categorical "
+            "bins and cannot be restored. It was written by a version of "
+            "optbinning that did not save them; write it again with to_json.")
+
+    for key, value in table_attr.items():
+        if isinstance(value, list):
+            if categorical and key == "splits":
+                # one array of categories per bin, of differing lengths
+                table_attr[key] = [np.asarray(split) for split in value]
+            else:
+                table_attr[key] = np.asarray(value)
+
+    return splits_optimal
+
+
 class OptimalBinning(BaseOptimalBinning):
     """Optimal binning of a numerical or categorical variable with respect to a
     binary target.
@@ -1199,7 +1238,7 @@ class OptimalBinning(BaseOptimalBinning):
         ("special_codes", "special_codes"),
     )
 
-    def _restore_from_binning_table(self):
+    def _restore_from_binning_table(self, splits_optimal=None):
         """Restore the fitted state that ``read_json`` does not rebuild.
 
         ``read_json`` reconstructs the binning table, but ``transform`` and
@@ -1214,6 +1253,9 @@ class OptimalBinning(BaseOptimalBinning):
         for table_attr, self_attr in self._restored_from_table:
             if hasattr(table, table_attr):
                 setattr(self, self_attr, getattr(table, table_attr))
+
+        if splits_optimal is not None:
+            self._splits_optimal = np.asarray(splits_optimal)
 
     def to_dict(self):
         """
@@ -1241,9 +1283,15 @@ class OptimalBinning(BaseOptimalBinning):
 
         opt_bin_dict['min_x'] = table.min_x
         opt_bin_dict['max_x'] = table.max_x
-        opt_bin_dict['categories'] = table.categories
-        opt_bin_dict['cat_others'] = table.cat_others
-        opt_bin_dict['user_splits'] = table.user_splits
+        opt_bin_dict['categories'] = _json_value(table.categories)
+        opt_bin_dict['cat_others'] = _json_value(table.cat_others)
+        opt_bin_dict['user_splits'] = _json_value(table.user_splits)
+
+        if table.dtype == 'categorical':
+            # table.splits holds the grouped categories, which is the output of
+            # bin_categorical, not the split positions it needs as input. Those
+            # live on the estimator and are what transform() reads back.
+            opt_bin_dict['splits_optimal'] = self._splits_optimal.tolist()
 
         return opt_bin_dict
 
@@ -1278,10 +1326,8 @@ class OptimalBinning(BaseOptimalBinning):
         with open(path, "r") as read_file:
             bin_table_attr = json.load(read_file)
 
-        for key in bin_table_attr.keys():
-            if isinstance(bin_table_attr[key], list):
-                bin_table_attr[key] = np.array(bin_table_attr[key])
+        splits_optimal = _restore_json_payload(bin_table_attr)
 
         self._binning_table = BinningTable(**bin_table_attr)
 
-        self._restore_from_binning_table()
+        self._restore_from_binning_table(splits_optimal)

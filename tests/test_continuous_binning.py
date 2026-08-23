@@ -291,3 +291,23 @@ def test_json_round_trip(tmp_path):
 
     assert optb_json.splits == approx(optb.splits, rel=1e-12)
     assert optb_json.transform(x) == approx(optb.transform(x), rel=1e-12)
+
+
+def test_json_round_trip_categorical(tmp_path):
+    x_cat = np.array(["a", "b", "c", "d"] * (len(y) // 4) +
+                     ["a"] * (len(y) % 4))
+
+    optb = ContinuousOptimalBinning(name="categorical", dtype="categorical")
+    optb.fit(x_cat, y)
+
+    path = str(tmp_path / "continuous_binning_categorical.json")
+    optb.to_json(path)
+
+    optb_json = ContinuousOptimalBinning()
+    optb_json.read_json(path)
+
+    for bin_json, bin_fit in zip(optb_json.splits, optb.splits):
+        assert list(bin_json) == list(bin_fit)
+
+    assert optb_json.transform(x_cat) == approx(
+        optb.transform(x_cat), rel=1e-12)

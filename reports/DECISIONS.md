@@ -210,3 +210,80 @@ line of `BinningLS` below the constructor is unreachable in CI.
 
 Do not "improve" this number: any test that exercises it would either need the
 licence or mock the solver so thoroughly that it tests the mock.
+
+## The five 2026-08-23 defects, and how each was resolved
+
+*Last updated: 2026-08-23*
+
+All five were found by the coverage pass earlier the same day, filed in
+`OPEN_ITEMS.md`, and fixed on request. Each fix ships a test that was red
+against the unfixed code.
+
+**The json format now carries categorical bins.** `to_dict` saved
+`table.splits` — the *output* of `bin_categorical` — so nothing could rebuild
+the estimator's split positions. It now also saves `splits_optimal`, the
+positions themselves, and `read_json` restores them through
+`_restore_json_payload`. Two further breakages surfaced while fixing it and are
+part of the same repair: `to_json` could not write a categorical binning at all
+(`TypeError: Object of type ArrowStringArray is not JSON serializable`, because
+`categories` / `cat_others` / `user_splits` were never converted with
+`tolist()`), and reading one back would have failed anyway because the
+per-bin category arrays have different lengths and `np.array` cannot hold them
+in one rectangular array. Files written before this change raise a `ValueError`
+naming the problem rather than failing later — the format is not
+backward compatible for categorical bins, and silently loading a broken one is
+worse than refusing it.
+
+**MDLP applies its stopping criterion to the split, not just to the
+recursion.** `self._splits.append(split)` moved inside the
+`if not self._terminate(...)` branch. This changes results: on breast-cancer
+"mean radius" the default fit goes from 7 splits to 3, and
+`OptimalBinning(prebinning_method="mdlp")` from IV 4.79132740 with 4 splits to
+IV 4.76862756 with 3 (measured 2026-08-23). The old behaviour added one
+unjustified cut per terminal branch; a target carrying no information now
+yields no splits at all, and `min_samples_split` can prevent the first split,
+which is what it documents.
+
+**MDLP accepts an integral float target.** `np.bincount` needs integer labels,
+so `_fit` now casts a float target whose values are integral and raises a
+`ValueError` naming the target when they are not, or when a label is negative.
+Previously a `df["target"].values` column produced a numpy cast error that did
+not mention the target at all.
+
+**`ContinuousOptimalBinning2D` rejects `prebinning_method="mdlp"` at parameter
+validation**, matching the 1D estimator, instead of accepting it and failing
+inside `PreBinning` during `fit`. Its docstring no longer lists mdlp.
+
+**`PWContinuousBinningTable` publishes `quality_score`**, and `analysis()` sets
+`_is_analyzed`, which it never did — so the property is guarded like the ones
+on its three sibling tables. Only the accessor was missing; the value was
+already computed.
+
+While mapping the last one, `OptimalBinningSketch`'s docstring was found to
+advertise `solver="ls"` although its `_check_parameters` allows only `"cp"` and
+`"mip"`. The docstring was corrected.
+
+## `solver="ls"` is dead code: the dependency cannot be installed
+
+*Last updated: 2026-08-23*
+
+Investigated 2026-08-23. `optbinning/binning/ls.py` imports `localsolver`, and:
+
+- **`localsolver` is not on PyPI.** `pip index versions localsolver` returns
+  `No matching distribution found`. It was only ever distributed through the
+  vendor's own installer, with a commercial licence.
+- **Its successor does not provide the same import.** LocalSolver was renamed
+  Hexaly; `hexaly` *is* on PyPI (15.0.20260812). Inspecting that wheel, its only
+  top-level package is `hexaly` (`hexaly/optimizer.py`, `libhexaly150.so`) —
+  there is no `localsolver` compatibility module, so
+  `from localsolver import LocalSolver` cannot be satisfied by it.
+
+So `solver="ls"` cannot be exercised by anyone installing this package from
+PyPI today, which is why `ls.py` sits at 9% coverage and why no test covers it.
+It is guarded: `LOCALSOLVER_AVAILABLE` is False, the package imports fine, and
+choosing the solver raises `ImportError` with a message naming the
+alternatives.
+
+Its footprint is small and contained — the removal plan is in
+`IMPROVEMENT_SUGGESTIONS.md`. Removing it is a public-API change and has not
+been done.

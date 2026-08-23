@@ -45,6 +45,12 @@ def test_params():
         optb = ContinuousOptimalBinning2D(prebinning_method="new_method")
         optb.fit(x, y, z)
 
+    # MDLP needs a binary target. Rejected by parameter validation, with the
+    # list of what is allowed — not later inside PreBinning.
+    with raises(ValueError, match="Invalid value for prebinning_method"):
+        optb = ContinuousOptimalBinning2D(prebinning_method="mdlp")
+        optb.fit(x, y, z)
+
     with raises(ValueError):
         optb = ContinuousOptimalBinning2D(strategy="new_strategy")
         optb.fit(x, y, z)

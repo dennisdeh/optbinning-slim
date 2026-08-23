@@ -123,7 +123,7 @@ def test_prebinning_method():
     optb.binning_table.build()
 
     assert optb.status == "OPTIMAL"
-    assert optb.binning_table.iv == approx(4.7913274, rel=1e-6)
+    assert optb.binning_table.iv == approx(4.76862756, rel=1e-6)
 
 
 def test_splits():
@@ -131,3 +131,44 @@ def test_splits():
 
     with raises(NotFittedError):
         mdlp.splits
+
+
+def test_no_split_without_information():
+    # The MDLP criterion rejects every candidate on a target that carries no
+    # information about x, so the discretisation is a single interval.
+    rng = np.random.RandomState(0)
+    x_noise = np.arange(200, dtype=float)
+    y_noise = rng.randint(0, 2, 200)
+
+    mdlp = MDLP()
+    mdlp.fit(x_noise, y_noise)
+
+    assert not len(mdlp.splits)
+
+
+def test_min_samples_split():
+    x_sep = np.arange(200, dtype=float)
+    y_sep = np.array([0] * 100 + [1] * 100)
+
+    # A node with fewer than min_samples_split distinct values is not split,
+    # the root included.
+    mdlp = MDLP(min_samples_split=len(x_sep) + 1)
+    mdlp.fit(x_sep, y_sep)
+
+    assert not len(mdlp.splits)
+
+
+def test_float_target():
+    # A binary target read from a pandas column is float, not int.
+    mdlp_int = MDLP().fit(x, y)
+    mdlp_float = MDLP().fit(x, y.astype(float))
+
+    assert mdlp_float.splits == approx(mdlp_int.splits, rel=1e-12)
+
+
+def test_target_labels():
+    with raises(ValueError):
+        MDLP().fit(x, y + 0.5)
+
+    with raises(ValueError):
+        MDLP().fit(x, y - 1)

@@ -11,9 +11,10 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from pytest import approx
+from pytest import approx, raises
 
 from optbinning import ContinuousOptimalPWBinning
+from sklearn.exceptions import NotFittedError
 from tests.datasets import load_boston
 
 data = load_boston()
@@ -103,9 +104,8 @@ def test_binning_table_analysis():
     optb.binning_table.build()
     optb.binning_table.analysis(print_output=False)
 
-    # PWContinuousBinningTable exposes no properties for what analysis()
-    # computes — unlike its three sibling tables — so the report itself is
-    # the only public surface to assert on. See reports/OPEN_ITEMS.md.
+    assert 0 <= optb.binning_table.quality_score <= 1
+
     with StringIO() as buf, redirect_stdout(buf):
         optb.binning_table.analysis()
         report = buf.getvalue()
@@ -113,3 +113,14 @@ def test_binning_table_analysis():
     assert "R^2" in report
     assert "Quality score" in report
     assert "Significance tests" in report
+
+
+def test_binning_table_quality_score_not_analyzed():
+    optb = ContinuousOptimalPWBinning(name=variable)
+    optb.fit(x, y)
+
+    optb.binning_table.build()
+
+    # analysis() has not run, so the score is not available yet
+    with raises(NotFittedError):
+        optb.binning_table.quality_score
