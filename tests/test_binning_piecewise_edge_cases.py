@@ -6,6 +6,7 @@ OptimalPWBinning and ContinuousOptimalPWBinning edge-case testing.
 # Copyright (C) 2022
 
 import re
+import warnings
 
 from contextlib import redirect_stdout
 from io import StringIO
@@ -911,3 +912,73 @@ def test_defect_continuous_fit_transform_drops_bounds():
     assert x_ci == approx(
         ContinuousOptimalPWBinning(max_n_prebins=6).fit(
             x, y_continuous).transform(x))
+
+
+def test_defect_pure_special_bucket_event_rate_parity():
+    # A special bucket holding only events. Its empirical event rate is 1,
+    # and the c0 column of the binning table is exactly the constant the
+    # transform uses for that bucket, so the two must agree.
+    x_special = x.copy()
+    y_special = y.copy()
+    x_special[:40] = -1
+    y_special[:40] = 1
+
+    optb = OptimalPWBinning(max_n_prebins=6,
+                            special_codes=[-1]).fit(x_special, y_special)
+
+    df = optb.binning_table.build()
+    row = df[df["Bin"] == "Special"].iloc[0]
+
+    assert row["Non-event"] == 0
+    assert row["Event"] == 40
+    assert row["c0"] == approx(1.0)
+
+    assert optb.transform([-1], metric="event_rate",
+                          metric_special="empirical") == approx([row["c0"]])
+
+    # An all-non-event bucket is the mirror image: rate 0, not "no rate".
+    y_nonevent = y.copy()
+    y_nonevent[:40] = 0
+
+    optb_n = OptimalPWBinning(max_n_prebins=6,
+                              special_codes=[-1]).fit(x_special, y_nonevent)
+
+    df_n = optb_n.binning_table.build()
+    assert df_n[df_n["Bin"] == "Special"].iloc[0]["c0"] == approx(0.0)
+    assert optb_n.transform([-1], metric="event_rate",
+                            metric_special="empirical") == approx([0.0])
+
+
+def test_defect_empirical_woe_of_a_pure_bucket():
+    # A bucket missing one of the two classes has no odds ratio to report:
+    # its WoE is 0, the same gate the binning table uses. Converting its
+    # event rate directly divides by zero -- the empty missing bucket even
+    # raised ZeroDivisionError.
+    x_special = x.copy()
+    y_special = y.copy()
+    x_special[:40] = -1
+    y_special[:40] = 1
+
+    optb = OptimalPWBinning(max_n_prebins=6,
+                            special_codes=[-1]).fit(x_special, y_special)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        t = optb.transform([-1, np.nan], metric="woe",
+                           metric_special="empirical",
+                           metric_missing="empirical")
+
+    assert t == approx([0.0, 0.0])
+
+
+def test_defect_fit_does_not_replace_the_estimator_parameter():
+    # fit() must not write a fitted LogisticRegression into the estimator
+    # constructor parameter: get_params must survive a fit unchanged.
+    optb = OptimalPWBinning(max_n_prebins=6)
+
+    assert optb.get_params()["estimator"] is None
+
+    optb.fit(x, y)
+
+    assert optb.get_params()["estimator"] is None
+    assert optb.estimator is None

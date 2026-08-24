@@ -205,6 +205,7 @@ class OptimalPWBinning(BasePWBinning):
 
         self._problem_type = "classification"
 
+        self._estimator = None
         self._n_nonevent_special = None
         self._n_nonevent_missing = None
         self._n_event_special = None
@@ -295,6 +296,15 @@ class OptimalPWBinning(BasePWBinning):
         -------
         x_new : numpy array, shape = (n_samples,)
             Transformed array.
+
+        Notes
+        -----
+        With ``metric_special="empirical"`` or ``metric_missing="empirical"``
+        the event rate of a bucket is reported wherever the bucket holds
+        records -- 1 for an all-event bucket, 0 for an all-non-event one --
+        matching the ``c0`` column of the binning table. Its WoE is 0
+        whenever the bucket lacks either class, since there is no odds ratio
+        to report.
         """
         self._check_is_fitted()
 
@@ -359,18 +369,24 @@ class OptimalPWBinning(BasePWBinning):
         # Fit estimator and compute event_rate = P[Y=1, X=x]
         time_estimator = time.perf_counter()
 
+        # The default lands in a private attribute: fit must not write a
+        # fitted estimator into the constructor parameter, or get_params
+        # stops round-tripping through sklearn.base.clone.
         if self.estimator is None:
-            self.estimator = LogisticRegression()
+            self._estimator = LogisticRegression()
 
             if self.verbose:
                 logger.info("Pre-binning: set logistic regression as an "
                             "estimator.")
+        else:
+            self._estimator = self.estimator
 
         if self.verbose:
             logger.info("Pre-binning: estimator fitting started.")
 
-        self.estimator.fit(x_clean.reshape(-1, 1), y_clean)
-        event_rate = self.estimator.predict_proba(x_clean.reshape(-1, 1))[:, 1]
+        self._estimator.fit(x_clean.reshape(-1, 1), y_clean)
+        event_rate = self._estimator.predict_proba(
+            x_clean.reshape(-1, 1))[:, 1]
 
         self._time_estimator = time.perf_counter() - time_estimator
 

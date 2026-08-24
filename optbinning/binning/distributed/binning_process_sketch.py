@@ -183,9 +183,12 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
         variables. Example ``{"variable_1": {"metric": "event_rate"}}``. An
         option given here applies to that variable only; the transform
         arguments still apply to every other variable. The transformed array
-        holds a single dtype, so a ``metric`` given here must share it with
-        the transform metric: "bins" (strings) and "indices" (integers)
-        cannot be mixed with the numeric metrics or with each other.
+        holds a single dtype, so a ``metric`` given here must be storable in
+        it: "bins" yields strings and cannot be mixed with any other metric,
+        and nothing else can be mixed into the integer array that a transform
+        metric of "indices" allocates. A per-variable "indices" under a
+        numeric or default transform metric is allowed -- that array is
+        float, which holds a bin index exactly.
 
     verbose : bool (default=False)
         Enable verbose output.
@@ -502,9 +505,11 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
             indices of the bins and "bins" to assign the corresponding
             bin interval. A per-variable ``metric`` in
             ``binning_transform_params`` overrides this one, but the output
-            array holds a single dtype: "bins" (strings) and "indices"
-            (integers) cannot be mixed with the numeric metrics or with each
-            other, and doing so raises ``ValueError``.
+            array holds a single dtype: mixing "bins" with any other metric,
+            or any other metric into an "indices" base metric, raises
+            ``ValueError``. A per-variable "indices" under a numeric metric
+            is allowed -- that array is float, which holds a bin index
+            exactly.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.

@@ -692,14 +692,15 @@ def test_cfmip_time_limit_is_rounded_to_int_milliseconds():
             assert optimizer.solver_.n_threads == 2
 
 
-def test_cfmip_sub_millisecond_time_limit_is_not_unlimited():
-    # 0 milliseconds is MPSolver's "no limit" sentinel. generate() rejects
-    # time_limit <= 0, but not 0.0004, which rounds to no budget at all and
-    # must not become an unbounded run. The stub would answer OPTIMAL if it
-    # were solved, so "UNKNOWN" proves the solve was skipped.
-    for optimizer in (_stub_cfmip(pywraplp.Solver.OPTIMAL, time_limit=0.0004),
-                      _stub_mcfmip(pywraplp.Solver.OPTIMAL,
-                                   time_limit=0.0004)):
+def test_cfmip_zero_time_limit_is_not_unlimited():
+    # 0 milliseconds is MPSolver's "no limit" sentinel, so a zero budget
+    # must not reach SetTimeLimit at all. generate() rejects time_limit <= 0
+    # and so never produces one, but the two solve() methods share the
+    # contract of optbinning/binning/mip.py, which is reached with a zero
+    # budget from OptimalBinning. The stub would answer OPTIMAL if it were
+    # solved, so "UNKNOWN" proves the solve was skipped.
+    for optimizer in (_stub_cfmip(pywraplp.Solver.OPTIMAL, time_limit=0),
+                      _stub_mcfmip(pywraplp.Solver.OPTIMAL, time_limit=0)):
         status, solution = optimizer.solve()
 
         assert status == "UNKNOWN"
@@ -707,6 +708,48 @@ def test_cfmip_sub_millisecond_time_limit_is_not_unlimited():
         assert optimizer.solver_.time_limit_ms is None
         # The thread count is set whether or not the solve happens.
         assert optimizer.solver_.n_threads == 2
+
+
+def test_cfmip_sub_millisecond_time_limit_is_clamped_to_one():
+    # generate() accepts 0.0004 seconds, which is a real budget and must buy
+    # a real solve: rounding it to whole milliseconds gives 0, MPSolver's
+    # "no limit" sentinel, so it is clamped up to one millisecond instead --
+    # the same contract as optbinning/binning/mip.py.
+    for time_limit in (0.0004, 0.0005, 0.0006, 0.001):
+        for optimizer in (_stub_cfmip(pywraplp.Solver.OPTIMAL,
+                                      time_limit=time_limit),
+                          _stub_mcfmip(pywraplp.Solver.OPTIMAL,
+                                       time_limit=time_limit)):
+            status, solution = optimizer.solve()
+
+            assert status == "OPTIMAL"
+            assert optimizer.solver_.time_limit_ms == 1
+            assert optimizer.solver_.n_threads == 2
+
+
+def test_information_after_an_infeasible_generate_is_quiet(capfd):
+    # Counterfactual.information calls information.solver_statistics on the
+    # MPSolver whenever an optimizer exists, and an infeasible model leaves
+    # that solver with no objective to read. OR-Tools does not raise on such
+    # a read, it logs to stderr -- "No solution exists" after a solve that
+    # produced none, "The model has been changed since the solution was last
+    # computed" after no solve at all. Neither may reach the user. Same
+    # check as tests/test_binning_solvers.py,
+    # assert_no_unsolved_objective_read; the target outcome here is the one
+    # test_generate_infeasible_status uses, and n_cf picks CFMIP or MCFMIP.
+    for n_cf, hard in ((1, ["min_outcome"]),
+                       (2, ["min_outcome", "diversity_features"])):
+        cf = _continuous()
+        cf.generate(query=query, y=1e6, outcome_type="continuous", n_cf=n_cf,
+                    max_changes=2, hard_constraints=hard)
+        capfd.readouterr()
+
+        cf.information(print_level=2)
+        captured = capfd.readouterr()
+
+        assert cf.status == "INFEASIBLE"
+        assert "solution was last computed" not in captured.err
+        assert "No solution exists" not in captured.err
 
 
 def test_cfmip_solution_is_an_object_array_of_boolean_masks():

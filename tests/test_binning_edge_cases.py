@@ -1559,3 +1559,81 @@ def test_refit_after_a_pure_prebin_is_removed():
     # the pruning happened, on the private working copies
     assert list(optb._user_splits) == [7.]
     assert list(optb._user_splits_fixed) == [False]
+
+
+def test_empty_user_splits_categorical_fits_a_single_bin():
+    """``user_splits=[]`` is "no split points" whatever the dtype is.
+
+    The empty branch of ``_fit`` delegated straight to
+    ``_prebinning_refinement``, which skips the categorical preprocessing that
+    builds ``categories``. ``bin_categorical`` then took its user-splits
+    layout, where ``n_bins == len(splits) == 0``, and produced no bin label at
+    all: ``build()`` died with "All arrays must be of the same length" and
+    ``transform`` returned nan for every record. An empty split set now means
+    the single bin ``user_splits=None`` gives when no split survives.
+    """
+    cats, yc = _categorical_data()
+
+    optb = OptimalBinning(dtype="categorical", user_splits=[])
+    optb.fit(cats, yc)
+
+    assert optb.status == "OPTIMAL"
+
+    # one bin, holding every category
+    assert len(optb.splits) == 1
+    assert sorted(optb.splits[0]) == ["A", "B", "C", "D", "E"]
+
+    df = optb.binning_table.build()
+
+    assert list(df["Bin"])[1:-1] == ["Special", "Missing"]
+    assert list(df["Count"])[:-1] == [len(cats), 0, 0]
+    assert list(df["Event"])[:-1] == [int(yc.sum()), 0, 0]
+
+    # a single bin carries the whole population, so its WoE is exactly 0
+    assert optb.transform(cats) == approx(np.zeros(len(cats)))
+
+
+def test_user_splits_fixed_error_names_the_split_it_removed():
+    """The message must name the fixed split, not the one at its old index.
+
+    ``user_splits`` is sorted before pre-binning and ``_user_splits_fixed`` is
+    reordered with it, but ``_user_splits`` kept the caller's original order.
+    ``_compute_prebins`` then indexed the unsorted list with a mask in sorted
+    order and named whatever split happened to sit at that position.
+    """
+    xd, yd = _pure_tail_data()
+
+    # 1.0 is the split the pure left tail removes, and it is the fixed one
+    optb = OptimalBinning(user_splits=[9., 1., 3., 5., 7.],
+                          user_splits_fixed=[False, True, False, False, False],
+                          max_n_bins=4)
+
+    with raises(ValueError, match=r"Fixed user_splits \[1\.\] are removed"):
+        optb.fit(xd, yd)
+
+
+def test_json_round_trip_special_codes_ndarray(tmp_path):
+    """``special_codes`` may be an ndarray, and ndarrays are not JSON.
+
+    ``to_dict`` passed ``special_codes`` through raw while every other array
+    attribute went through ``_json_value``, so ``to_json`` raised
+    ``TypeError: Object of type ndarray is not JSON serializable``. The dict
+    form has the same problem one level down, in its values.
+    """
+    xs = x.copy()
+    xs[:5] = -1.
+    xs[5:10] = -2.
+
+    for special_codes in (np.array([-1., -2.]),
+                          {"a": np.array([-1.]), "b": [-2.]}):
+        optb = OptimalBinning(special_codes=special_codes, max_n_prebins=6)
+        optb.fit(xs, y)
+
+        path = str(tmp_path / "special_codes.json")
+        optb.to_json(path)
+
+        optb_json = OptimalBinning()
+        optb_json.read_json(path)
+
+        assert optb_json.transform(xs) == approx(optb.transform(xs),
+                                                 rel=1e-12)

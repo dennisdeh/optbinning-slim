@@ -17,6 +17,7 @@ from ..information import solver_statistics
 from ..logging import Logger
 from .auto_monotonic import auto_monotonic
 from .auto_monotonic import peak_valley_trend_change_heuristic
+from .binning import _json_value
 from .binning import _restore_json_payload
 from .binning import OptimalBinning
 from .binning_statistics import multiclass_bin_info
@@ -268,7 +269,8 @@ class MulticlassOptimalBinning(OptimalBinning):
         Dictionary of parameters to pass to the outlier detection method.
 
     user_splits : array-like or None, optional (default=None)
-        The list of pre-binning split points.
+        The list of pre-binning split points. An empty list means no split
+        points, and gives a single bin holding every clean record.
 
     user_splits_fixed : array-like or None (default=None)
         The list of pre-binning split points that must be fixed.
@@ -567,8 +569,8 @@ class MulticlassOptimalBinning(OptimalBinning):
 
         time_prebinning = time.perf_counter()
 
-        if self.user_splits is not None:
-            n_splits = len(self.user_splits)
+        if self._user_splits is not None:
+            n_splits = len(self._user_splits)
 
             if self.verbose:
                 logger.info("Pre-binning: user splits supplied: {}"
@@ -582,7 +584,8 @@ class MulticlassOptimalBinning(OptimalBinning):
                     np.array([]), x_clean, y_clean, y_missing, x_special,
                     y_special, None)
             else:
-                user_splits = check_array(self.user_splits, ensure_2d=False,
+                user_splits = check_array(self._user_splits,
+                                          ensure_2d=False,
                                           dtype=None, ensure_all_finite=True)
 
                 if len(set(user_splits)) != len(user_splits):
@@ -592,9 +595,9 @@ class MulticlassOptimalBinning(OptimalBinning):
                 user_splits = user_splits[sorted_idx]
                 self._user_splits = user_splits
 
-                if self.user_splits_fixed is not None:
+                if self._user_splits_fixed is not None:
                     self._user_splits_fixed = np.asarray(
-                        self.user_splits_fixed)[sorted_idx]
+                        self._user_splits_fixed)[sorted_idx]
 
                 splits, n_nonevent, n_event = self._prebinning_refinement(
                     user_splits, x_clean, y_clean, y_missing, x_special,
@@ -939,7 +942,7 @@ class MulticlassOptimalBinning(OptimalBinning):
 
         opt_bin_dict = dict()
         opt_bin_dict['name'] = table.name
-        opt_bin_dict['special_codes'] = table.special_codes
+        opt_bin_dict['special_codes'] = _json_value(table.special_codes)
 
         opt_bin_dict['splits'] = table.splits.tolist()
         opt_bin_dict['n_event'] = table.n_event.tolist()

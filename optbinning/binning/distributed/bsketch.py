@@ -5,6 +5,7 @@ Binning sketch.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+import copy
 import numbers
 
 import numpy as np
@@ -41,6 +42,20 @@ def _check_parameters(sketch, eps, K, special_codes):
     if special_codes is not None:
         if not isinstance(special_codes, (np.ndarray, list)):
             raise TypeError("special_codes must be a list or numpy.ndarray.")
+
+
+def _special_codes_set(special_codes):
+    """Special codes as a set, with None meaning the empty set.
+
+    None is not a wildcard. A value that is a special code for one sketch
+    and a clean value for another describes a different stream, and merging
+    the two files the same value in both the special bucket and the clean
+    bins.
+    """
+    if special_codes is None:
+        return set()
+
+    return set(special_codes)
 
 
 def _indices_count(sketch_type, sketch, splits):
@@ -180,11 +195,27 @@ class BSketch:
         ----------
         bsketch : object
             BSketch instance.
+
+        Raises
+        ------
+        Exception
+            If the two instances do not share the same signature, i.e. the
+            same ``sketch``, ``eps``, ``K`` and ``special_codes``. A value
+            that is a special code for one instance and a clean value for
+            the other would land in both the special bucket and the
+            quantile sketch, so the merged counts would not describe any
+            single stream. ``special_codes=None`` is the empty set here,
+            not a wildcard.
         """
         if not self._mergeable(bsketch):
             raise Exception("bsketch does not share signature.")
 
+        # A chunk of nothing but special codes and missing values leaves the
+        # quantile sketches empty but still carries counts, so the counts
+        # are merged on every path -- including this one, which used to
+        # return before reaching them.
         if bsketch._sketch_e.n == 0 and bsketch._sketch_ne.n == 0:
+            self._merge_counts(bsketch)
             return
 
         if self._sketch_e.n == 0 and self._sketch_ne.n == 0:
@@ -199,11 +230,7 @@ class BSketch:
             self._sketch_e += bsketch._sketch_e
             self._sketch_ne += bsketch._sketch_ne
 
-        # Merge missing and special counts
-        self._count_missing_e += bsketch._count_missing_e
-        self._count_missing_ne += bsketch._count_missing_ne
-        self._count_special_e += bsketch._count_special_e
-        self._count_special_ne += bsketch._count_special_ne
+        self._merge_counts(bsketch)
 
     def merge_sketches(self):
         """Merge event and non-event data internal sketches."""
@@ -218,19 +245,27 @@ class BSketch:
         return new_sketch
 
     def _copy(self, bsketch):
-        self._sketch_e = bsketch._sketch_e
-        self._sketch_ne = bsketch._sketch_ne
+        # Deep copies. merge() reaches this whenever the receiver's own
+        # sketches are empty -- the aggregator/worker pattern -- and
+        # aliasing the other instance's sketch objects there would make
+        # every later add() on the receiver grow the worker's counts too.
+        self._sketch_e = copy.deepcopy(bsketch._sketch_e)
+        self._sketch_ne = copy.deepcopy(bsketch._sketch_ne)
 
-        # Merge missing and special counts
-        self._count_missing_e = bsketch._count_missing_e
-        self._count_missing_ne = bsketch._count_missing_ne
-        self._count_special_e = bsketch._count_special_e
-        self._count_special_ne = bsketch._count_special_ne
+        # This is a step of merge(), not a plain copy: an aggregator whose
+        # quantile sketches are still empty can already hold special and
+        # missing counts of its own, and assigning here discarded them.
+        self._merge_counts(bsketch)
+
+    def _merge_counts(self, bsketch):
+        self._count_missing_e += bsketch._count_missing_e
+        self._count_missing_ne += bsketch._count_missing_ne
+        self._count_special_e += bsketch._count_special_e
+        self._count_special_ne += bsketch._count_special_ne
 
     def _mergeable(self, other):
-        special_eq = True
-        if self.special_codes is not None and other.special_codes is not None:
-            special_eq = set(self.special_codes) == set(other.special_codes)
+        special_eq = (_special_codes_set(self.special_codes) ==
+                      _special_codes_set(other.special_codes))
 
         return (self.sketch == other.sketch and self.eps == other.eps and
                 self.K == other.K and special_eq)
@@ -401,7 +436,8 @@ class BCatSketch:
             same ``special_codes``. A value that is a special code for one
             instance and a category for the other would land in both the
             special bucket and the categories, so the merged counts would
-            not describe any single stream.
+            not describe any single stream. ``special_codes=None`` is the
+            empty set here, not a wildcard.
         """
         if not self._mergeable(bcatsketch):
             raise Exception("bcatsketch does not share signature.")
@@ -423,18 +459,21 @@ class BCatSketch:
         self._count_special_ne += bcatsketch._count_special_ne
 
     def _copy(self, bcatsketch):
-        self._d_categories = bcatsketch._d_categories
+        # Deep copy, for the reason BSketch._copy gives: the per-category
+        # counts are mutable lists, and sharing them would make a later
+        # add() on either instance change the other's counts. Unlike
+        # BSketch._copy this really is a plain copy and overwrites the
+        # counts -- merge() never reaches it, so it is not a merge step.
+        self._d_categories = {k: list(v)
+                              for k, v in bcatsketch._d_categories.items()}
         self._count_missing_e = bcatsketch._count_missing_e
         self._count_missing_ne = bcatsketch._count_missing_ne
         self._count_special_e = bcatsketch._count_special_e
         self._count_special_ne = bcatsketch._count_special_ne
 
     def _mergeable(self, other):
-        special_eq = True
-        if self.special_codes is not None and other.special_codes is not None:
-            special_eq = set(self.special_codes) == set(other.special_codes)
-
-        return special_eq
+        return (_special_codes_set(self.special_codes) ==
+                _special_codes_set(other.special_codes))
 
     @property
     def n_event(self):

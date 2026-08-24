@@ -285,16 +285,38 @@ def transform_binary_target(splits, dtype, x, n_nonevent, n_event,
         event_rate = np.zeros(len(n_records))
         woe = np.zeros(len(n_records))
 
-        event_rate[mask] = n_event[mask] / n_records[mask]
-        woe[mask] = transform_event_rate_to_woe(
-            event_rate[mask], t_n_nonevent, t_n_event)
+        # The event rate is a property of the bin on its own, so it is gated
+        # on records: an all-event bin reports 1 and an all-non-event bin 0.
+        # WoE compares the bin against the rest of the sample and stays gated
+        # on `mask` -- it is 0 where either class is absent. This is the gate
+        # BinningTable.build uses, and the two must report the same number.
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
+
+        if mask.any():
+            woe[mask] = transform_event_rate_to_woe(
+                event_rate[mask], t_n_nonevent, t_n_event)
 
         # Assign unknown category value
         if cat_unknown is None:
-            mean_event_rate = t_n_event / n_records.sum()
+            # The numerator counts every record, so the denominator must
+            # too. n_records is truncated to the non-special bins whenever
+            # metric_special and metric_missing are both numeric, and
+            # dividing by that both inflates the rate -- past 1, into a
+            # negative odds ratio, wherever the special bucket dominates --
+            # and makes an unknown category depend on arguments that do not
+            # describe it.
+            t_n_records = t_n_nonevent + t_n_event
+            mean_event_rate = t_n_event / t_n_records if t_n_records else 0.
             if metric == "woe":
-                cat_unknown = transform_event_rate_to_woe(
-                    mean_event_rate, t_n_nonevent, t_n_event)
+                # A single-class sample has no odds to convert: every bin
+                # reports WoE 0, so an unknown category takes 0 too.
+                if t_n_nonevent and t_n_event:
+                    cat_unknown = transform_event_rate_to_woe(
+                        mean_event_rate, t_n_nonevent, t_n_event)
+                else:
+                    cat_unknown = 0.
             else:
                 cat_unknown = mean_event_rate
 
@@ -362,9 +384,18 @@ def transform_multiclass_target(splits, x, n_event, special_codes, metric,
         event_rate = np.zeros(n_event.shape)
         woe = np.zeros(n_event.shape)
 
-        event_rate[mask] = n_event[mask] / n_records[mask]
+        # Records gate the event rate, mixedness gates the WoE -- the same
+        # split transform_binary_target and BinningTable.build make. Only
+        # WoE reaches the caller here, so widening the rate changes no
+        # output; the two kernels are kept identical on purpose.
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
 
         for i in range(n_classes):
+            if not mask[:, i].any():
+                continue
+
             woe[mask[:, i],  i] = transform_event_rate_to_woe(
                 event_rate[mask[:, i], i], t_n_nonevent[i], t_n_event[i])
 

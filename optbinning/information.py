@@ -45,27 +45,33 @@ def print_optional_parameters(dict_default_options, dict_user_options):
     print(str_options)
 
 
-# Stamped on an MPSolver whose Solve() was deliberately skipped -- see
-# BinningMIP.solve. Reading the objective of a solver that was never solved
-# does not raise, it makes OR-Tools log "The model has been changed since the
-# solution was last computed" to stderr once per read, and pywraplp exposes
-# no synchronisation state to ask instead: wall_time() is 0 after a real BOP
-# solve too (measured 2026-08-24), and Iterations() / nodes() / VerifySolution
-# emit the very message they would be asked to avoid.
-_SOLVE_SKIPPED = "_optbinning_solve_skipped"
+# Stamped on an MPSolver that holds no solution -- see BinningMIP.solve.
+# Reading the objective of such a solver does not raise, it makes OR-Tools
+# log to stderr once per read: "The model has been changed since the solution
+# was last computed" when Solve() never ran, "No solution exists.
+# MPSolverInterface::result_status_ = ..." when it ran and produced none.
+# pywraplp exposes no synchronisation state to ask instead: wall_time() is 0
+# after a real BOP solve too (measured 2026-08-24), and Iterations() /
+# nodes() / VerifySolution emit the very message they would be asked to
+# avoid.
+_NO_SOLUTION = "_optbinning_no_solution"
 
 
-def mark_solve_skipped(solver):
-    """Record on an MPSolver that its ``Solve()`` was deliberately skipped.
+def mark_no_solution(solver):
+    """Record on an MPSolver that it holds no solution to report.
+
+    Every ``solve()`` in this package marks the solver on the branch that
+    builds a fallback solution -- a skipped solve, a solve that timed out,
+    and one that proved the model infeasible or unbounded all end there.
 
     Parameters
     ----------
     solver : object
-        An ``ortools.linear_solver.pywraplp.Solver`` holding a built but
-        unsolved model. :func:`solver_statistics` reports a zero objective
-        for it instead of reading one that does not exist.
+        An ``ortools.linear_solver.pywraplp.Solver`` whose model has no
+        solution. :func:`solver_statistics` reports a zero objective for it
+        instead of reading one that does not exist.
     """
-    setattr(solver, _SOLVE_SKIPPED, True)
+    setattr(solver, _NO_SOLUTION, True)
 
 
 def solver_statistics(solver_type, solver):
@@ -85,9 +91,12 @@ def solver_statistics(solver_type, solver):
         d_solver["n_constraints"] = solver.NumConstraints()
         d_solver["n_variables"] = solver.NumVariables()
 
-        if getattr(solver, _SOLVE_SKIPPED, False):
-            # No solve, no objective. Reported as zero, which is what the cp
-            # branch above gets from CP-SAT for the same unsolved model.
+        if getattr(solver, _NO_SOLUTION, False):
+            # No solution, no objective -- and no best bound either: cbc
+            # answers that read for an infeasible model with the bound of a
+            # relaxation nothing feasible lives in. Reported as zero, which
+            # is what the cp branch above gets from CP-SAT for the same
+            # unsolved model.
             d_solver["objective"] = 0.0
             d_solver["best_bound"] = 0.0
         else:

@@ -286,6 +286,16 @@ def test_bin_info_empty_solution():
     assert list(ev) == [3, 5, 2]
 
 
+def test_bin_info_no_prebin_yields_an_empty_bin():
+    # pre-binning can legally return nothing at all -- every record of the
+    # stream was a special code or missing. There is still exactly one bin
+    # row to report, and it holds no record.
+    nev, ev = bin_info(np.array([]), np.array([]), np.array([]),
+                       1, 2, 4, 5, 0, 0, [])
+    assert list(nev) == [0, 4, 1]
+    assert list(ev) == [0, 5, 2]
+
+
 def test_bin_info_unselected_prebins_are_accumulated():
     # a prebin whose split is not selected is merged into the next one
     merged, _ = bin_info(np.array([False, True]), np.array([5, 6]),
@@ -685,10 +695,12 @@ def test_binning_table_degenerate_single_class():
     assert list(df["IV"])[:-1] == [0.0] * 5
     assert table.iv == 0.
     assert table.js == 0.
-    # the empty-distribution limit keeps KS finite instead of NaN
-    assert table._ks == 0.
-    assert table._hellinger == 0.
-    assert table._triangular == 0.
+    # the empty-distribution limit keeps KS finite instead of NaN. Read
+    # through the public properties: they are the pinned contract, the
+    # private attributes are an implementation detail.
+    assert table.ks == 0.
+    assert table.hellinger == 0.
+    assert table.triangular == 0.
 
     # the event rate is gated on records, not on mixedness: every one of
     # these bins is 100% event and has to say so
@@ -743,7 +755,42 @@ def test_binning_table_empty_counts_report_zeros():
     assert list(df["Count (%)"])[:-1] == [0.0, 0.0, 0.0]
     assert list(df["Event rate"])[:-1] == [0.0, 0.0, 0.0]
     assert df.loc["Totals", "Event rate"] == 0.0
+    # the totals share is hardcoded to 1 for a non-empty table; with no
+    # record at all it has to agree with the per-bin shares above
+    assert df.loc["Totals", "Count (%)"] == 0.0
+    assert df.loc["Totals", "Count"] == 0
     assert table.gini == 0.
+
+
+def test_pure_clean_bin_moves_the_trend_and_the_plot(capsys, tmp_path):
+    # A pin, not a regression test: it has never been red. Gating the event
+    # rate on records rather than on mixedness moves every bin that lacks
+    # one class, degenerate target or not -- the "Event rate" column,
+    # ``_event_rate`` (which plot(metric="event_rate") draws) and the
+    # monotonic-trend classification analysis() prints. Here the target is
+    # mixed and only the middle clean bin is pure.
+    table = BinningTable("x", "numerical", None, np.array([1., 2.]),
+                         np.array([80, 40, 0, 5, 5]),
+                         np.array([20, 60, 30, 5, 5]))
+
+    df = table.build()
+
+    assert list(df["Event rate"])[:3] == [0.2, 0.6, 1.0]
+    assert list(table._event_rate)[:3] == [0.2, 0.6, 1.0]
+    # WoE, IV and JS stay gated on mixedness
+    assert list(df["WoE"])[2] == 0.0
+    assert list(df["IV"])[2] == 0.0
+
+    table.analysis()
+
+    out = capsys.readouterr().out
+    trend = [ln for ln in out.splitlines() if "Monotonic trend" in ln][0]
+
+    # on their own rates the clean bins read 0.2, 0.6, 1.0; reporting 0.0
+    # for the pure one made them 0.2, 0.6, 0.0 -- "peak (concave)"
+    assert trend.split()[-1] == "ascending"
+
+    table.plot(metric="event_rate", savefig=str(tmp_path / "event_rate.png"))
 
 
 def test_gini_single_class_over_several_bins_is_zero():
@@ -765,6 +812,24 @@ def test_gini_single_class_over_several_bins_is_zero():
 # ---------------------------------------------------------------------------
 # MulticlassBinningTable
 # ---------------------------------------------------------------------------
+
+def test_multiclass_table_empty_counts_report_zeros():
+    # the sibling of test_binning_table_empty_counts_report_zeros: nothing
+    # to divide by, so neither the record shares nor the totals row may
+    # come back nan, and no RuntimeWarning may escape
+    table = MulticlassBinningTable("x", None, np.array([]),
+                                   np.zeros((3, 2), dtype=int),
+                                   [0, 1])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        df = table.build()
+
+    assert list(df["Count (%)"])[:-1] == [0.0, 0.0, 0.0]
+    assert list(df["Event_rate_0"])[:-1] == [0.0, 0.0, 0.0]
+    assert df.loc["Totals", "Count (%)"] == 0.0
+    assert df.loc["Totals", "Event_rate_0"] == 0.0
+
 
 def test_multiclass_table_not_built():
     table = _multiclass_table()
@@ -890,6 +955,24 @@ def test_multiclass_table_analysis(capsys):
 # ---------------------------------------------------------------------------
 # ContinuousBinningTable
 # ---------------------------------------------------------------------------
+
+def test_continuous_table_empty_counts_report_zeros():
+    # the continuous sibling: t_n_records is 0, so the mean, the record
+    # shares and the totals row all have to stay finite
+    zeros = np.zeros(3)
+    table = ContinuousBinningTable(
+        "x", "numerical", None, np.array([]), np.zeros(3, dtype=int),
+        zeros, zeros, zeros, zeros, np.zeros(3, dtype=int))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        df = table.build()
+
+    assert list(df["Count (%)"])[:-1] == [0.0, 0.0, 0.0]
+    assert list(df["Mean"])[:-1] == [0.0, 0.0, 0.0]
+    assert df.loc["Totals", "Count (%)"] == 0.0
+    assert df.loc["Totals", "Mean"] == 0.0
+
 
 def test_continuous_table_not_built():
     table = _continuous_table()

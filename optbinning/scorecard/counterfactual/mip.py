@@ -9,7 +9,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
-from ...information import mark_solve_skipped
+from ...information import mark_no_solution
 from .utils import logistic_pw
 
 
@@ -191,22 +191,21 @@ class CFMIP:
     def solve(self):
         # See BinningMIP.solve: MPSolver.SetTimeLimit takes int64
         # milliseconds and reads 0 as "no limit", whereas time_limit is a
-        # number of seconds. Round to the nearest millisecond so a
-        # fractional limit is honoured instead of raising a SWIG TypeError.
-        # Counterfactual.generate rejects time_limit <= 0 but not 0.0004,
-        # which is no budget at all and must not become an unbounded run.
-        # The thread count is not part of the budget and is set either way.
-        time_limit_ms = int(round(self.time_limit * 1000))
-
+        # number of seconds. A fractional budget is rounded to whole
+        # milliseconds instead of raising a SWIG TypeError, and a positive
+        # one is clamped up to a single millisecond -- Counterfactual
+        # .generate accepts 0.0004 seconds, a real budget that must buy a
+        # real solve rather than the "no limit" sentinel. The thread count
+        # is not part of the budget and is set either way.
         self.solver_.SetNumThreads(self.n_jobs)
 
-        if time_limit_ms > 0:
-            self.solver_.SetTimeLimit(time_limit_ms)
+        if self.time_limit > 0:
+            self.solver_.SetTimeLimit(
+                max(1, int(round(self.time_limit * 1000))))
             status = self.solver_.Solve()
         else:
-            # The model is left built but unsolved, and information
-            # .solver_statistics is asked for its objective either way.
-            mark_solve_skipped(self.solver_)
+            # generate() rejects a zero budget; a directly built CFMIP can
+            # still carry one, and leaves the model built but unsolved.
             status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
@@ -237,6 +236,11 @@ class CFMIP:
                 status_name = "UNBOUNDED"
             else:
                 status_name = "UNKNOWN"
+
+            # No solve, or a solve that produced nothing: the solver has no
+            # objective to report, and Counterfactual.information asks
+            # information.solver_statistics for one either way.
+            mark_no_solution(self.solver_)
 
             solution = None
 

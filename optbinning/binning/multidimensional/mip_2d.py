@@ -10,7 +10,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
-from ...information import mark_solve_skipped
+from ...information import mark_no_solution
 
 
 class Binning2DMIP:
@@ -86,26 +86,20 @@ class Binning2DMIP:
         self._n_rectangles = n_rectangles
 
     def solve(self):
-        # Solve. MPSolver.SetTimeLimit takes int64 milliseconds and reads 0
-        # as "no limit", whereas time_limit is validated as any non-negative
-        # number of seconds and Binning2DCP hands the same value to CP-SAT
-        # as a double. Round to the nearest millisecond so a fractional
-        # limit is honoured instead of raising a SWIG TypeError, and never
-        # pass on a zero: a budget that rounds below one millisecond is no
-        # budget, and must not silently become an unbounded run. CP-SAT
-        # reports UNKNOWN for such a budget, and so must this. The thread
+        # Solve. See BinningMIP.solve for the budget: a fractional one is
+        # rounded to whole milliseconds, a positive one is clamped up to a
+        # single millisecond rather than reaching MPSolver as its 0 = "no
+        # limit" sentinel, and only an exact zero skips the solve, matching
+        # what Binning2DCP gets from CP-SAT for a zero budget. The thread
         # count is not part of the budget and is set either way.
-        time_limit_ms = int(round(self.time_limit * 1000))
-
         self.solver_.SetNumThreads(self.n_jobs)
 
-        if time_limit_ms > 0:
-            self.solver_.SetTimeLimit(time_limit_ms)
+        if self.time_limit > 0:
+            self.solver_.SetTimeLimit(
+                max(1, int(round(self.time_limit * 1000))))
             status = self.solver_.Solve()
         else:
-            # The model is left built but unsolved, and information
-            # .solver_statistics is asked for its objective either way.
-            mark_solve_skipped(self.solver_)
+            # The model is left built but unsolved.
             status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
@@ -127,6 +121,11 @@ class Binning2DMIP:
                 status_name = "UNBOUNDED"
             else:
                 status_name = "UNKNOWN"
+
+            # No solve, or a solve that produced nothing: the solver has no
+            # objective to report, and binning_2d._fit asks information
+            # .solver_statistics for one either way.
+            mark_no_solution(self.solver_)
 
             solution = np.zeros(self._n_rectangles, dtype=bool)
 

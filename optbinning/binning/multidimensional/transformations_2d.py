@@ -163,9 +163,21 @@ def transform_binary_target(dtype_x, dtype_y, splits_x, splits_y, x, y,
         mask = (n_event > 0) & (n_nonevent > 0)
         event_rate = np.zeros(len(n_records))
         woe = np.zeros(len(n_records))
-        event_rate[mask] = n_event[mask] / n_records[mask]
-        constant = np.log(t_n_event / t_n_nonevent)
-        woe[mask] = np.log(1 / event_rate[mask] - 1) + constant
+
+        # The event rate is a property of the bin on its own, so it is gated
+        # on records: an all-event bin reports 1 and an all-non-event bin 0.
+        # WoE compares the bin against the rest of the sample and stays gated
+        # on `mask`. BinningTable2D.build splits the two gates the same way,
+        # and the table and the transform must report the same number.
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
+
+        # A single-class target leaves one total at zero, and then no bin is
+        # mixed: there is no odds ratio to take the logarithm of.
+        if mask.any():
+            constant = np.log(t_n_event / t_n_nonevent)
+            woe[mask] = np.log(1 / event_rate[mask] - 1) + constant
 
         if metric == "woe":
             metric_value = woe

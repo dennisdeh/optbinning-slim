@@ -336,7 +336,38 @@ def test_bsketch_merge_into_empty_copies_counts():
     assert sk1._count_missing_ne == sk2._count_missing_ne
     assert sk1._count_special_e == sk2._count_special_e
     assert sk1._count_special_ne == sk2._count_special_ne
-    assert sk1._sketch_e is sk2._sketch_e
+
+    # the receiver copies the two sketches; aliasing them would make every
+    # later add() on either instance grow the other one too
+    assert sk1._sketch_e is not sk2._sketch_e
+    assert sk1._sketch_ne is not sk2._sketch_ne
+
+    sk1.add(np.array([10.0, 11.0]), np.array([1, 1]))
+
+    assert sk1.n == 7
+    assert sk2.n == 5
+
+
+def test_bsketch_merge_keeps_the_other_sketch_special_counts():
+    # a worker whose whole chunk was special codes or missing values has an
+    # empty quantile sketch. merge() returned early on that, dropping every
+    # count the worker carried.
+    sk1 = BSketch(sketch="gk", eps=1e-2, special_codes=[-1.0])
+    sk2 = BSketch(sketch="gk", eps=1e-2, special_codes=[-1.0])
+
+    sk1.add(np.arange(10.0), np.array([0, 1] * 5))
+    sk2.add(np.full(6, -1.0), np.array([0, 1] * 3))
+    sk2.add(np.full(4, np.nan), np.array([0, 1] * 2))
+
+    assert sk2._sketch_e.n == 0 and sk2._sketch_ne.n == 0
+
+    sk1.merge(sk2)
+
+    assert sk1._count_special_e == 3
+    assert sk1._count_special_ne == 3
+    assert sk1._count_missing_e == 2
+    assert sk1._count_missing_ne == 2
+    assert sk1.n == 20
 
 
 def test_bsketch_mergeable_compares_special_codes_as_sets():
@@ -347,9 +378,30 @@ def test_bsketch_mergeable_compares_special_codes_as_sets():
 
     assert sk1._mergeable(sk2)
     assert not sk1._mergeable(sk3)
-    # a None on either side skips the comparison entirely
-    assert sk1._mergeable(sk4)
-    assert sk4._mergeable(sk1)
+    # None means "no special codes", i.e. the empty set -- not a wildcard
+    assert not sk1._mergeable(sk4)
+    assert not sk4._mergeable(sk1)
+    assert sk4._mergeable(BSketch(sketch="gk", eps=1e-2))
+
+
+def test_bsketch_merge_refuses_an_uncoded_sketch():
+    # sk2 has no special codes, so its -1.0 is a clean value. Merging it
+    # into sk1, for which -1.0 is special, would put the same value in the
+    # quantile sketch and in the special bucket of one merged stream.
+    sk1 = BSketch(sketch="gk", eps=1e-2, special_codes=[-1.0])
+    sk2 = BSketch(sketch="gk", eps=1e-2)
+
+    x = np.array([1.0, -1.0])
+    y = np.array([0, 1])
+    sk1.add(x, y)
+    sk2.add(x, y)
+
+    with raises(Exception, match="bsketch does not share signature."):
+        sk1.merge(sk2)
+
+    assert sk1._count_special_e == 1
+    assert sk1._sketch_e.n == 0
+    assert sk1.n == 2
 
 
 def test_bsketch_merge_sketches_tdigest():
@@ -462,17 +514,25 @@ def test_bcatsketch_merge_of_disjoint_categories():
     assert sk1.n == 5
 
 
-def test_bcatsketch_copy_is_an_unreachable_helper():
+def test_bcatsketch_copy_does_not_alias_the_other_sketch():
     # BCatSketch.merge never calls _copy -- unlike BSketch.merge -- so it is
-    # only reachable by a direct call.
+    # only reachable by a direct call, but it must still not hand the
+    # receiver a reference to the other instance's category counts.
     sk1 = BCatSketch(special_codes=[1, 2])
     sk2 = BCatSketch(special_codes=[2, 1])
 
     sk2.add(np.array(["a", "b"], dtype=object), np.array([0, 1]))
     sk1._copy(sk2)
 
-    assert sk1._d_categories is sk2._d_categories
+    assert sk1._d_categories == sk2._d_categories
+    assert sk1._d_categories is not sk2._d_categories
+    assert sk1._d_categories["a"] is not sk2._d_categories["a"]
     assert sk1.n == sk2.n
+
+    sk1.add(np.array(["a"], dtype=object), np.array([0]))
+
+    assert sk1._d_categories["a"] == [2, 0]
+    assert sk2._d_categories["a"] == [1, 0]
 
 
 def test_bcatsketch_mergeable_compares_special_codes_as_sets():
@@ -483,9 +543,30 @@ def test_bcatsketch_mergeable_compares_special_codes_as_sets():
 
     assert sk1._mergeable(sk2)
     assert not sk1._mergeable(sk3)
-    # a None on either side skips the comparison entirely
-    assert sk1._mergeable(sk4)
-    assert sk4._mergeable(sk1)
+    # None means "no special codes", i.e. the empty set -- not a wildcard
+    assert not sk1._mergeable(sk4)
+    assert not sk4._mergeable(sk1)
+    assert sk4._mergeable(BCatSketch())
+
+
+def test_bcatsketch_merge_refuses_an_uncoded_sketch():
+    # sk2 has no special codes, so its "Z" is a plain category. Merging it
+    # into sk1, for which "Z" is special, left "Z" both as a category and
+    # in the special bucket -- the corruption the signature guard exists
+    # for, reached through the None side the guard used to trust.
+    sk1 = BCatSketch(special_codes=["Z"])
+    sk2 = BCatSketch()
+
+    x = np.array(["a", "Z"], dtype=object)
+    sk1.add(x, np.array([0, 1]))
+    sk2.add(x, np.array([0, 1]))
+
+    with raises(Exception, match="bcatsketch does not share signature."):
+        sk1.merge(sk2)
+
+    assert set(sk1._d_categories) == {"a"}
+    assert sk1._count_special_e == 1
+    assert sk1.n == 2
 
 
 def test_defect_bcatsketch_merge_ignores_the_special_codes_signature():
@@ -857,6 +938,88 @@ def test_solve_on_a_stream_whose_events_have_not_arrived_yet():
     assert optb.binning_table.build()["Count"].values[-1] == 60
 
 
+def test_solve_on_an_all_special_numerical_stream():
+    # every record is a special code, so the quantile sketch is empty and
+    # pre-binning has nothing to split. A degenerate stream is legal input:
+    # solve() succeeds with a single, empty clean bin and the table still
+    # accounts for every record.
+    optb = OptimalBinningSketch(sketch="gk", eps=1e-2, special_codes=[-1.0])
+    optb.add(np.full(10, -1.0), np.array([0, 1] * 5))
+    optb.solve()
+
+    assert optb.status == "OPTIMAL"
+    assert len(optb.splits) == 0
+
+    table = optb.binning_table.build()
+
+    assert list(table["Count"].values) == [0, 10, 0, 10]
+    assert list(table["Event"].values) == [0, 5, 0, 5]
+    assert table.loc["Totals", "Count"] == 10
+
+    optb.binning_table.analysis(print_output=False)
+
+
+def test_solve_on_an_all_special_categorical_stream():
+    # the categorical sibling: BCatSketch.bins() returns no category at
+    # all, so bin_info received empty count arrays and raised IndexError
+    optb = OptimalBinningSketch(dtype="categorical", special_codes=["Z"])
+    optb.add(np.array(["Z"] * 10, dtype=object), np.array([0, 1] * 5))
+    optb.solve()
+
+    assert optb.status == "OPTIMAL"
+    assert [list(b) for b in optb.splits] == [[]]
+
+    table = optb.binning_table.build()
+
+    assert list(table["Count"].values) == [0, 10, 0, 10]
+    assert list(table["Event"].values) == [0, 5, 0, 5]
+    assert table.loc["Totals", "Count"] == 10
+
+    optb.binning_table.analysis(print_output=False)
+
+
+def test_solve_on_an_all_missing_categorical_stream():
+    optb = OptimalBinningSketch(dtype="categorical")
+    optb.add(np.array([np.nan] * 10, dtype=object), np.array([0, 1] * 5))
+    optb.solve()
+
+    assert optb.status == "OPTIMAL"
+    assert [list(b) for b in optb.splits] == [[]]
+
+    table = optb.binning_table.build()
+
+    assert list(table["Count"].values) == [0, 0, 10, 10]
+    assert table.loc["Totals", "Count"] == 10
+
+
+def test_merge_into_an_empty_aggregator_does_not_alias_the_worker():
+    # the distributed pattern: an aggregator that has so far seen only
+    # special codes merges a worker's sketch. BSketch._copy handed over the
+    # worker's GK objects by reference, so every later add() on the
+    # aggregator also grew the worker's own counts.
+    agg = OptimalBinningSketch(sketch="gk", eps=1e-2, special_codes=[-1.0])
+    worker = OptimalBinningSketch(sketch="gk", eps=1e-2,
+                                  special_codes=[-1.0])
+
+    agg.add(np.full(4, -1.0), np.array([0, 1, 0, 1]))
+    worker.add(np.arange(20.0), np.array([0, 1] * 10))
+
+    agg.merge(worker)
+
+    assert agg._bsketch._sketch_e is not worker._bsketch._sketch_e
+    assert agg._bsketch._sketch_ne is not worker._bsketch._sketch_ne
+    assert agg._bsketch.n == 24
+
+    agg.add(np.arange(1000., 1020.), np.ones(20))
+
+    assert agg._bsketch.n == 44
+    assert worker._bsketch.n == 20
+
+    worker.solve()
+
+    assert worker.binning_table.build()["Count"].values[-1] == 20
+
+
 def test_bin_size_bounds():
     x, y = _numerical_data(n=300, seed=11)
 
@@ -899,25 +1062,33 @@ def test_split_digits_none_leaves_every_digit():
 
 
 def test_split_digits_collision_leaves_no_duplicate_split():
-    # rounding can collapse two quantiles onto one value; the empty prebin
-    # that leaves is what _compute_prebins removes, so no np.unique is
-    # needed -- but a duplicate split must never reach the binning table.
+    # rounding can collapse two quantiles onto one value. _compute_prebins
+    # drops the empty prebin that leaves only on the iv/js branch; under
+    # "hellinger"/"triangular" it merely raises _flag_min_n_event_nonevent,
+    # so the duplicate splits used to reach the optimizer -- MODEL_INVALID
+    # for "hellinger", a TypeError out of OR-Tools for "triangular".
     x, y = _numerical_data(n=2000, seed=0)
 
-    optb = OptimalBinningSketch(sketch="gk", eps=1e-4, max_n_prebins=20,
-                                split_digits=0)
-    optb.add(x, y)
-    optb.solve()
+    for divergence in ("iv", "js", "hellinger", "triangular"):
+        optb = OptimalBinningSketch(sketch="gk", eps=1e-4, max_n_prebins=20,
+                                    split_digits=0, divergence=divergence)
+        optb.add(x, y)
+        optb.solve()
 
-    assert optb.status == "OPTIMAL"
-    splits = optb.splits
-    assert len(splits) == len(np.unique(splits))
-    assert splits.tolist() == np.round(splits, 0).tolist()
+        assert optb.status == "OPTIMAL"
 
-    table = optb.binning_table.build()
-    assert table["Count"].values[-1] == 2000
-    # every bin holds records: no empty prebin survived the collision
-    assert (table["Count"].values[:-4] > 0).all()
+        prebins = optb._splits_prebinning
+        assert len(prebins) == len(np.unique(prebins))
+
+        splits = optb.splits
+        assert len(splits) == len(np.unique(splits))
+        assert splits.tolist() == np.round(splits, 0).tolist()
+
+        table = optb.binning_table.build()
+        assert table["Count"].values[-1] == 2000
+        # every bin holds records: no empty prebin survived the collision.
+        # The table carries n_bins + 3 rows (Special, Missing, Totals).
+        assert (table["Count"].values[:-3] > 0).all()
 
 
 def test_split_digits_does_not_round_categorical_positions():
@@ -1285,19 +1456,24 @@ def test_add_accepts_lists_and_series():
     assert sk.n == 5
 
 
-def test_all_nan_x_raises():
-    optb = OptimalBinningSketch(sketch="gk", eps=1e-2, max_n_prebins=4)
-    optb.add(np.full(50, np.nan), np.array([0, 1] * 25))
-
-    with raises(ValueError, match="GK sketch does not contain values."):
+def test_all_nan_x_is_a_single_empty_bin():
+    # this used to raise -- ValueError("GK sketch does not contain values.")
+    # for "gk", ValueError("Tree is empty") for "t-digest" -- because the
+    # quantile sketch was asked for percentiles it had no value for. A
+    # stream of nothing but missing values is degenerate but legal.
+    for sketch in ("gk", "t-digest"):
+        optb = OptimalBinningSketch(sketch=sketch, eps=1e-2,
+                                    max_n_prebins=4)
+        optb.add(np.full(50, np.nan), np.array([0, 1] * 25))
         optb.solve()
 
-    optb_td = OptimalBinningSketch(sketch="t-digest", eps=1e-2,
-                                   max_n_prebins=4)
-    optb_td.add(np.full(50, np.nan), np.array([0, 1] * 25))
+        assert optb.status == "OPTIMAL"
+        assert len(optb.splits) == 0
 
-    with raises(ValueError):
-        optb_td.solve()
+        table = optb.binning_table.build()
+
+        assert list(table["Count"].values) == [0, 0, 50, 50]
+        assert list(table["Event"].values) == [0, 0, 25, 25]
 
 
 def test_transform_invalid_metric():

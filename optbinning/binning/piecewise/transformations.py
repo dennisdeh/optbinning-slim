@@ -95,23 +95,36 @@ def transform_binary_target(splits, x, c, lb, ub, n_nonevent, n_event,
     event_rate_missing = metric_missing
 
     if metric_special == "empirical":
-        n_event_special = np.asarray(n_event_special)
-        n_nonevent_special = np.asarray(n_nonevent_special)
+        # The non-dict form reports one pooled bucket as scalars; make both
+        # forms a length-n_special array so a single kernel serves them.
+        n_event_special = np.atleast_1d(
+            np.asarray(n_event_special, dtype=float))
+        n_nonevent_special = np.atleast_1d(
+            np.asarray(n_nonevent_special, dtype=float))
 
         event_rate_special = np.zeros(n_special)
         n_records_special = n_event_special + n_nonevent_special
 
-        mask = (n_event_special > 0) & (n_nonevent_special > 0)
-
-        if n_special > 1:
-            event_rate_special[mask] = (
-                n_event_special[mask] / n_records_special[mask])
-        elif mask:
-            event_rate_special = n_event_special / n_records_special
+        # The event rate is a property of the bucket on its own, so it is
+        # gated on records: an all-event bucket reports 1 and an
+        # all-non-event one 0. An empty bucket keeps 0.
+        mask_records = n_records_special > 0
+        event_rate_special[mask_records] = (
+            n_event_special[mask_records] /
+            n_records_special[mask_records])
 
         if metric == "woe":
-            event_rate_special = transform_event_rate_to_woe(
-                event_rate_special, n_nonevent, n_event)
+            # WoE compares the bucket against the whole sample, so it is 0
+            # wherever the bucket lacks either class -- the gate the binning
+            # table uses, and the one that keeps log(0) out of the result.
+            mask = (n_event_special > 0) & (n_nonevent_special > 0)
+            woe_special = np.zeros(n_special)
+
+            if mask.any():
+                woe_special[mask] = transform_event_rate_to_woe(
+                    event_rate_special[mask], n_nonevent, n_event)
+
+            event_rate_special = woe_special
 
     if metric_missing == "empirical":
         n_records_missing = n_event_missing + n_nonevent_missing
@@ -122,8 +135,11 @@ def transform_binary_target(splits, x, c, lb, ub, n_nonevent, n_event,
             event_rate_missing = 0
 
         if metric == "woe":
-            event_rate_missing = transform_event_rate_to_woe(
-                event_rate_missing, n_nonevent, n_event)
+            if n_event_missing > 0 and n_nonevent_missing > 0:
+                event_rate_missing = transform_event_rate_to_woe(
+                    event_rate_missing, n_nonevent, n_event)
+            else:
+                event_rate_missing = 0
 
     x_transform = _apply_transform(
         x, c, lb, ub, special_codes, metric_special, metric_missing,

@@ -761,12 +761,16 @@ def test_single_class_target_fits_one_degenerate_bin():
     the binning table reports honest zeros for every divergence metric. A
     single row is the same input viewed through a smaller sample and travels
     the identical path, so it is covered here rather than separately.
-    """
-    cases = ((X_df[["v0"]], np.zeros(N, dtype=int)),
-             (X_df[["v0"]], np.ones(N, dtype=int)),
-             (X_df[["v0"]].iloc[:1], y_binary[:1]))
 
-    for X, y in cases:
+    The process transform must report the same honest numbers: the event
+    rate is a property of the bin on its own, so an all-event bin is 1.0 and
+    an all-non-event bin 0.0 -- never 0.0 for both.
+    """
+    cases = ((X_df[["v0"]], np.zeros(N, dtype=int), 0.0),
+             (X_df[["v0"]], np.ones(N, dtype=int), 1.0),
+             (X_df[["v0"]].iloc[:1], y_binary[:1], float(y_binary[0])))
+
+    for X, y, event_rate in cases:
         process = _process(names=["v0"])
 
         with warnings.catch_warnings(record=True) as caught:
@@ -788,6 +792,21 @@ def test_single_class_target_fits_one_degenerate_bin():
         assert table.iv == 0
         assert table.js == 0
         assert table.gini == 0
+
+        # WoE compares the bin against the rest of the sample and stays
+        # gated on the bin holding both classes, so it is 0; the event rate
+        # is gated on records instead. There being one bin, every index is 0.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rates = process.transform(X, metric="event_rate")
+            woes = process.transform(X, metric="woe")
+            indices = process.transform(X, metric="indices")
+
+        assert not [w for w in caught
+                    if issubclass(w.category, RuntimeWarning)]
+        assert rates["v0"].values == approx(event_rate)
+        assert woes["v0"].values == approx(0.0)
+        assert (indices["v0"].values == 0).all()
 
 
 def test_infinite_and_extreme_values():
@@ -1143,13 +1162,19 @@ def test_defect_update_binned_variable_binary_guard_accepts_continuous():
 
 
 def test_defect_transform_metric_indices_mixed_is_silently_truncated():
-    """A per-variable metric of a different dtype is coerced, not rejected.
+    """A per-variable metric too wide for the output array is coerced.
 
     ``_transform`` allocates one output array from the reconciled base
     metric and then transforms each variable with
-    ``binning_transform_params[name]["metric"]``. The reconciliation raises
-    on a "bins" mix but not on an "indices" one, so an integer array
-    receives WoE and truncates it: -2.407 is stored as -2.
+    ``binning_transform_params[name]["metric"]``. The reconciliation raised
+    on a "bins" mix but not on an "indices" one, so the integer array a base
+    metric of "indices" allocates received WoE and truncated it: -2.407 was
+    stored as -2.
+
+    Only this direction loses data. The reverse -- a numeric base metric
+    with a per-variable "indices" -- is exact and must keep working; it is
+    pinned by
+    ``test_transform_params_indices_override_under_a_numeric_base_metric``.
     """
     params = {"v0": {"metric": "woe"}}
     process = _process(names=["v0", "v1"], binning_transform_params=params)
@@ -1157,15 +1182,6 @@ def test_defect_transform_metric_indices_mixed_is_silently_truncated():
 
     with raises(ValueError, match="'indices' cannot be mixed"):
         process.transform(X_df[["v0", "v1"]], metric="indices")
-
-    # The same clash seen from the other side: a numeric base metric and a
-    # per-variable "indices" override.
-    params = {"v0": {"metric": "indices"}}
-    process = _process(names=["v0", "v1"], binning_transform_params=params)
-    process.fit(X_df[["v0", "v1"]], y_binary)
-
-    with raises(ValueError, match="'indices' cannot be mixed"):
-        process.transform(X_df[["v0", "v1"]], metric="woe")
 
 
 def test_transform_params_indices_metric_for_every_variable():
@@ -1177,6 +1193,78 @@ def test_transform_params_indices_metric_for_every_variable():
     transformed = process.transform(X_df[["v0", "v1"]], metric="indices")
     assert transformed.values.dtype == int
     assert (transformed.values >= 0).all()
+
+
+def test_transform_params_indices_override_under_a_numeric_base_metric():
+    """A per-variable "indices" override is lossless under a float array.
+
+    Only one direction of the dtype clash loses data. An "indices" base
+    metric allocates an integer array, so a numeric override written into it
+    is truncated. The reverse -- a numeric or default base metric with a
+    per-variable "indices" -- allocates a float array, and bin indices are
+    small integers that float64 holds exactly. Both the explicit metric and
+    the documented ``metric=None`` default keep working.
+    """
+    frame = X_df[["v0", "v1"]]
+    params = {"v0": {"metric": "indices"}}
+    process = _process(names=["v0", "v1"], binning_transform_params=params)
+    process.fit(frame, y_binary)
+
+    optb0 = process.get_binned_variable("v0")
+    optb1 = process.get_binned_variable("v1")
+    expected = optb0.transform(frame["v0"].values, metric="indices")
+
+    transformed = process.transform(frame, metric="woe")
+    assert np.array_equal(transformed["v0"].values, expected)
+    assert transformed["v1"].values == approx(
+        optb1.transform(frame["v1"].values, metric="woe"))
+
+    default = process.transform(frame)
+    assert np.array_equal(default["v0"].values, expected)
+    assert default["v1"].values == approx(
+        optb1.transform(frame["v1"].values))
+
+
+def test_transform_disk_indices_override_under_a_numeric_base_metric():
+    """``_transform_disk`` reconciles metrics through the same helper."""
+    path = _disk_input()
+    output = _fresh_output("binning_process_edge_indices_override.csv")
+
+    params = {"v0": {"metric": "indices"}}
+    process = _process(names=["v0", "v1"], binning_transform_params=params)
+    process.fit(X_df[["v0", "v1"]], y_binary)
+    process.transform_disk(path, output, chunksize=100, metric="woe")
+
+    written = pd.read_csv(output)
+    optb0 = process.get_binned_variable("v0")
+    optb1 = process.get_binned_variable("v1")
+
+    assert np.array_equal(
+        written["v0"].values,
+        optb0.transform(X_df["v0"].values, metric="indices"))
+    assert written["v1"].values == approx(
+        optb1.transform(X_df["v1"].values, metric="woe"))
+
+
+def test_sketch_transform_indices_override_under_a_numeric_base_metric():
+    """The sketch shares the helper, and the same lossless direction."""
+    frame = _sketch_frame()[["v0", "v1"]]
+
+    sketch = BinningProcessSketch(
+        ["v0", "v1"], max_n_prebins=5,
+        binning_transform_params={"v0": {"metric": "indices"}})
+    sketch.add(frame, y_binary)
+    sketch.solve()
+
+    transformed = sketch.transform(frame, metric="woe")
+    optb0 = sketch.get_binned_variable("v0")
+    optb1 = sketch.get_binned_variable("v1")
+
+    assert np.array_equal(
+        transformed["v0"].values,
+        optb0.transform(frame["v0"].values, metric="indices"))
+    assert transformed["v1"].values == approx(
+        optb1.transform(frame["v1"].values, metric="woe"))
 
 
 def test_defect_transform_disk_metric_indices_mixed_is_silently_truncated():
@@ -1298,11 +1386,14 @@ def test_defect_two_dimensional_binning_accepted_as_a_process_variable():
                              min_prebin_size=0.1)
     process.fit(frame, y_binary)
 
+    # The rejection gets its own sentence: interpolating the accepted 1D
+    # types would read "OptimalBinning2D must be of type (OptimalBinning,
+    # ...)", which contradicts itself.
     for optb in (optb2d, coptb2d):
-        with raises(TypeError, match="must be of type"):
+        with raises(TypeError, match="two-dimensional estimators bin a pair"):
             process.update_binned_variable("v0-v1", optb)
 
-        with raises(TypeError, match="must be of type"):
+        with raises(TypeError, match="two-dimensional estimators bin a pair"):
             BinningProcess(["v0-v1"]).fit_from_dict({"v0-v1": optb})
 
     # The process is still the one that was fitted.

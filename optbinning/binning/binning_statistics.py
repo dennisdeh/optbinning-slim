@@ -234,9 +234,15 @@ def bin_info(solution, n_nonevent, n_event, n_nonevent_missing,
             accum_nev += n_nonevent[i]
             accum_ev += n_event[i]
 
+    # No split point means a single bin spanning the whole variable. Its
+    # counts are the only prebin's -- or zero, when pre-binning returned no
+    # prebin at all because every record was special, missing or in others.
+    # The bin row exists either way: bin_str_format and bin_categorical both
+    # label len(splits) + 1 bins, so dropping it would leave the binning
+    # table one row short of its own labels.
     if not len(solution):
-        n_ev.append(n_event[0])
-        n_nev.append(n_nonevent[0])
+        n_ev.append(n_event[0] if len(n_event) else 0)
+        n_nev.append(n_nonevent[0] if len(n_nonevent) else 0)
 
     if len(cat_others):
         n_nev.append(n_nonevent_cat_others)
@@ -512,6 +518,11 @@ class BinningTable:
         the sample and are reported as 0 for any bin missing either class,
         which on a single-class target is every bin; Gini, KS, Hellinger and
         Triangular are 0 for the same reason.
+
+        A table holding no record at all -- every record of the variable
+        was a special code, missing, or in the others' bin -- reports 0 for
+        every share and every rate, the Count (%) of the totals row
+        included; that row is otherwise the constant 1.
         """
         _check_build_parameters(show_digits, add_totals)
 
@@ -523,13 +534,16 @@ class BinningTable:
         t_n_event = n_event.sum()
         t_n_records = t_n_nonevent + t_n_event
 
-        # An empty table has no rate and no shares to report.
+        # An empty table has no rate and no shares to report -- the totals
+        # share included, which is otherwise the constant 1.
         if t_n_records:
             t_event_rate = t_n_event / t_n_records
             p_records = n_records / t_n_records
+            t_p_records = 1
         else:
             t_event_rate = 0.
             p_records = np.zeros(len(n_records))
+            t_p_records = 0
 
         # A single-class target leaves one of the two totals at zero, so both
         # event distributions would be 0/0. Every bin is pure in that case and
@@ -631,7 +645,7 @@ class BinningTable:
             })
 
         if add_totals:
-            totals = ["", t_n_records, 1, t_n_nonevent, t_n_event,
+            totals = ["", t_n_records, t_p_records, t_n_nonevent, t_n_event,
                       t_event_rate, "", t_iv, t_js]
             df.loc["Totals"] = totals
 
@@ -1191,6 +1205,13 @@ class MulticlassBinningTable:
         Returns
         -------
         binning_table : pandas.DataFrame
+
+        Notes
+        -----
+        A table holding no record at all reports 0 for every share and
+        every event rate, the Count (%) of the totals row included; that
+        row is otherwise the constant 1. A class with no event in any bin
+        contributes no distribution, so the Jensen-Shannon divergence is 0.
         """
         _check_build_parameters(show_digits, add_totals)
 
@@ -1198,7 +1219,15 @@ class MulticlassBinningTable:
 
         n_records = n_event.sum(axis=1)
         t_n_records = n_records.sum()
-        p_records = n_records / t_n_records
+
+        # An empty table has no shares to report -- the totals share
+        # included, which is otherwise the constant 1.
+        if t_n_records:
+            p_records = n_records / t_n_records
+            t_p_records = 1
+        else:
+            p_records = np.zeros(len(n_records))
+            t_p_records = 0
 
         mask = (n_event > 0)
         event_rate = np.zeros((len(n_records), len(self.classes)))
@@ -1207,9 +1236,15 @@ class MulticlassBinningTable:
             event_rate[mask[:, i], i] = n_event[
                 mask[:, i], i] / n_records[mask[:, i]]
 
-        # Compute Jensen-Shannon multivariate divergence
-        p_event = self.n_event / self.n_event.sum(axis=0)
-        self._js = jensen_shannon_multivariate(p_event)
+        # Compute Jensen-Shannon multivariate divergence. A class with no
+        # event anywhere has no distribution to compare, so the divergence
+        # is 0 rather than the nan the 0/0 would give.
+        t_n_event_class = self.n_event.sum(axis=0)
+        if np.all(t_n_event_class):
+            p_event = self.n_event / t_n_event_class
+            self._js = jensen_shannon_multivariate(p_event)
+        else:
+            self._js = 0.
 
         # Compute HHI
         self._hhi = hhi(p_records)
@@ -1250,8 +1285,11 @@ class MulticlassBinningTable:
 
         if add_totals:
             t_n_events = self.n_event.sum(axis=0)
-            t_n_event_rate_class = t_n_events / t_n_records
-            totals = ["", t_n_records, 1] + list(t_n_events)
+            if t_n_records:
+                t_n_event_rate_class = t_n_events / t_n_records
+            else:
+                t_n_event_rate_class = np.zeros(len(t_n_events))
+            totals = ["", t_n_records, t_p_records] + list(t_n_events)
             totals += list(t_n_event_rate_class)
             df.loc["Totals"] = totals
 
@@ -1659,13 +1697,28 @@ class ContinuousBinningTable:
         Returns
         -------
         binning_table : pandas.DataFrame
+
+        Notes
+        -----
+        A table holding no record at all reports 0 for every share and for
+        the mean, the Count (%) of the totals row included; that row is
+        otherwise the constant 1.
         """
         _check_build_parameters(show_digits, add_totals)
 
         t_n_records = np.nansum(self.n_records)
         t_sum = np.nansum(self.sums)
-        t_mean = t_sum / t_n_records
-        p_records = self.n_records / t_n_records
+
+        # An empty table has no mean and no shares to report -- the totals
+        # share included, which is otherwise the constant 1.
+        if t_n_records:
+            t_mean = t_sum / t_n_records
+            p_records = self.n_records / t_n_records
+            t_p_records = 1
+        else:
+            t_mean = 0.
+            p_records = np.zeros(len(self.n_records))
+            t_p_records = 0
 
         mask = (self.n_records > 0)
         self._mean = np.zeros(len(self.n_records))
@@ -1725,8 +1778,8 @@ class ContinuousBinningTable:
             t_min = np.nanmin(self.min_target)
             t_max = np.nanmax(self.max_target)
             t_n_zeros = self.n_zeros.sum()
-            totals = ["", t_n_records, 1, t_sum, "", t_mean, t_min, t_max,
-                      t_n_zeros, t_woe, t_iv]
+            totals = ["", t_n_records, t_p_records, t_sum, "", t_mean, t_min,
+                      t_max, t_n_zeros, t_woe, t_iv]
             df.loc["Totals"] = totals
 
         self._is_built = True

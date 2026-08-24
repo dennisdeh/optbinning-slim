@@ -18,6 +18,8 @@ ordering of the objective, and the exception type. See CLAUDE.md,
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+import warnings
+
 import numpy as np
 
 from ortools.linear_solver import pywraplp
@@ -90,6 +92,17 @@ def consecutive_zscores(n_nonevent, n_event):
         p1, p2, p = e1 / n1, e2 / n2, (e1 + e2) / (n1 + n2)
         z.append(abs(p1 - p2) / np.sqrt(p * (1 - p) * (1 / n1 + 1 / n2)))
     return np.array(z)
+
+
+def assert_no_unsolved_objective_read(captured):
+    """Fail if OR-Tools logged an objective read off a solver holding no
+    solution. It does not raise on such a read, it writes to stderr:
+    "The model has been changed since the solution was last computed" when
+    Solve() never ran, "No solution exists. MPSolverInterface::result_status_
+    = ..." when it ran and produced none. The prefix differs by whether
+    absl::InitializeLog has run, so the message body is what is matched."""
+    assert "solution was last computed" not in captured.err
+    assert "No solution exists" not in captured.err
 
 
 SOLVERS = (("cp", "bop"), ("mip", "bop"), ("mip", "cbc"))
@@ -647,18 +660,34 @@ def test_mip_time_limit_is_rounded_to_int_milliseconds():
 
 
 def test_mip_zero_time_limit_is_not_unlimited():
-    # 0 milliseconds is MPSolver's "no limit" sentinel, so a budget that
-    # rounds below one millisecond must not reach SetTimeLimit at all. The
-    # stub would answer OPTIMAL if it were solved, so "UNKNOWN" plus the
-    # all-in-one-bin fallback proves the solve was skipped.
-    for time_limit in (0, 0.0004):
+    # 0 milliseconds is MPSolver's "no limit" sentinel, so a zero budget
+    # must not reach SetTimeLimit at all. The stub would answer OPTIMAL if
+    # it were solved, so "UNKNOWN" plus the all-in-one-bin fallback proves
+    # the solve was skipped.
+    optimizer = _stub_optimizer(pywraplp.Solver.OPTIMAL)
+    optimizer.time_limit = 0
+    status_name, solution = optimizer.solve()
+
+    assert optimizer.solver_.time_limit_ms is None
+    assert status_name == "UNKNOWN"
+    assert list(solution) == [False, False, False, True]
+
+
+def test_mip_sub_millisecond_time_limit_is_clamped_to_one():
+    # A positive budget is still a budget: only an exact zero skips the
+    # solve. Rounding decides nothing here -- int(round(0.0005 * 1000)) is 0
+    # under banker's rounding and 0.0006 rounds to 1, so where the skip
+    # started depended on which side of half a millisecond the budget fell.
+    # Every positive budget now buys at least one whole millisecond of
+    # solving.
+    for time_limit in (0.0004, 0.0005, 0.0006, 0.001):
         optimizer = _stub_optimizer(pywraplp.Solver.OPTIMAL)
         optimizer.time_limit = time_limit
         status_name, solution = optimizer.solve()
 
-        assert optimizer.solver_.time_limit_ms is None
-        assert status_name == "UNKNOWN"
-        assert list(solution) == [False, False, False, True]
+        assert optimizer.solver_.time_limit_ms == 1
+        assert status_name == "OPTIMAL"
+        assert list(solution) == [False, False, True, False]
 
 
 def test_multiclass_mip_shares_the_time_limit_domain():
@@ -695,9 +724,33 @@ def test_skipped_mip_solve_leaves_the_objective_alone(capfd):
     captured = capfd.readouterr()
 
     assert optb.status == "UNKNOWN"
-    assert "solution was last computed" not in captured.err
+    assert_no_unsolved_objective_read(captured)
     assert optb._optimizer["objective"] == 0
     assert optb._optimizer["best_bound"] == 0
+
+
+def test_infeasible_mip_leaves_the_objective_alone(capfd):
+    # A skipped solve is not the only solver with no objective to read: a
+    # model that was solved and found INFEASIBLE has none either, and that
+    # one is reachable from ordinary parameters. Reading it logs "No
+    # solution exists" per read, and cbc answers the best-bound read with
+    # the bound of a model that has no feasible solution at all.
+    fixed = [False] * len(splits_all)
+    fixed[5] = True
+    fixed[6] = True
+
+    for mip_solver in ("bop", "cbc"):
+        optb = OptimalBinning(user_splits=splits_all, solver="mip",
+                              mip_solver=mip_solver, user_splits_fixed=fixed,
+                              monotonic_trend="ascending")
+        optb.fit(x, y)
+        optb.information(print_level=2)
+        captured = capfd.readouterr()
+
+        assert optb.status == "INFEASIBLE"
+        assert_no_unsolved_objective_read(captured)
+        assert optb._optimizer["objective"] == 0
+        assert optb._optimizer["best_bound"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -785,15 +838,72 @@ def test_2d_mip_zero_time_limit_is_not_unlimited():
     # The stub would answer OPTIMAL if it were solved, so "UNKNOWN" plus the
     # empty solution proves the solve was skipped. SetNumThreads is not part
     # of the budget and is set either way.
-    for time_limit in (0, 0.0004):
+    optimizer = _stub_2d_optimizer(pywraplp.Solver.OPTIMAL)
+    optimizer.time_limit = 0
+    status_name, solution = optimizer.solve()
+
+    assert status_name == "UNKNOWN"
+    assert optimizer.solver_.time_limit_ms is None
+    assert not solution.any()
+    assert optimizer.solver_.n_threads == 2
+
+
+def test_2d_mip_sub_millisecond_time_limit_is_clamped_to_one():
+    # Same contract as BinningMIP.solve: only an exact zero skips the solve,
+    # and a positive budget below a millisecond is clamped up to one rather
+    # than rounded down to MPSolver's "no limit" sentinel.
+    for time_limit in (0.0004, 0.0005, 0.0006, 0.001):
         optimizer = _stub_2d_optimizer(pywraplp.Solver.OPTIMAL)
         optimizer.time_limit = time_limit
         status_name, solution = optimizer.solve()
 
-        assert status_name == "UNKNOWN"
-        assert optimizer.solver_.time_limit_ms is None
-        assert not solution.any()
-        assert optimizer.solver_.n_threads == 2
+        assert status_name == "OPTIMAL"
+        assert optimizer.solver_.time_limit_ms == 1
+        assert list(solution) == [True, False, False]
+
+
+def test_2d_mip_without_a_solution_leaves_the_objective_alone(capfd):
+    # binning_2d._fit calls solver_statistics itself, so the 2D MIP reaches
+    # the same objective read as the 1D one -- with no information() call
+    # needed. Both branches that leave the solver without one are named: a
+    # zero budget, which skips the solve, and a model no assignment of the
+    # 4x4 grid can satisfy, which is solved and found infeasible.
+    x2, z2, y2, e2 = build_2d()
+
+    cases = {"UNKNOWN": dict(time_limit=0),
+             "INFEASIBLE": dict(min_n_bins=1000)}
+
+    for status, params in cases.items():
+        optb = OptimalBinning2D(solver="mip", **params, **PREBINS_2D)
+        optb.fit(x2, z2, y2)
+        optb.information(print_level=2)
+        captured = capfd.readouterr()
+
+        assert optb.status == status
+        assert_no_unsolved_objective_read(captured)
+        assert optb._optimizer["objective"] == 0
+        assert optb._optimizer["best_bound"] == 0
+
+
+def test_2d_binning_table_at_a_zero_budget_warns_nothing():
+    # A zero budget gives up before any rectangle is selected -- for both
+    # formulations -- so the table has no bins and no records at all.
+    # Building it must stay arithmetic on empty totals rather than a divide
+    # by zero: the 1D table is records-gated and warning-free for the same
+    # degeneracy, and the 2D one has to match it.
+    x2, z2, y2, e2 = build_2d()
+
+    for solver in ("cp", "mip"):
+        optb = OptimalBinning2D(solver=solver, time_limit=0, **PREBINS_2D)
+        optb.fit(x2, z2, y2)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            optb.binning_table.build()
+
+        assert optb.status == "UNKNOWN"
+        assert [str(w.message) for w in caught
+                if issubclass(w.category, RuntimeWarning)] == []
 
 
 def test_two_prebins_with_higher_order_trends():

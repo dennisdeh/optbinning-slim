@@ -759,9 +759,11 @@ def test_defect_categorical_single_user_split_group():
     assert df["Mean"].values[0] == approx(y_cat[:300].mean(), rel=1e-9)
 
 
-def test_defect_categorical_user_splits_collapsing_to_one_group():
+def test_categorical_user_splits_absent_group_is_dropped_cleanly():
     """Two groups collapse to one when a group names an absent category.
 
+    This certifies correct behaviour; it is not a defect pin, which is why it
+    does not carry the ``test_defect_`` prefix.
     ``preprocessing_user_splits_categorical`` averages the target over each
     group to order them, so a group no record falls into is averaged over an
     empty selection: numpy warns "Mean of empty slice" and returns nan. The
@@ -770,7 +772,9 @@ def test_defect_categorical_user_splits_collapsing_to_one_group():
     fitting the same data without the absent group and getting the same
     table. The warning is suppressed exactly as in
     ``test_categorical_user_splits_empty_group`` above; guarding the mean
-    belongs in preprocessing.py.
+    belongs in preprocessing.py, and any guard has to keep an empty group
+    sorting *last* -- a finite sentinel would move it to the front and change
+    ``sorted_idx``.
     """
     user_splits = np.array([["a", "b", "c"], ["absent"]], dtype=object)
 
@@ -952,3 +956,62 @@ def test_sample_weight_with_zeros():
 
     assert optb.status == "OPTIMAL"
     assert bin_counts(optb).sum() == n - 100
+
+
+def test_empty_user_splits_categorical_fits_a_single_bin():
+    """``user_splits=[]`` is "no split points" whatever the dtype is.
+
+    The empty branch of ``_fit`` delegated straight to
+    ``_prebinning_refinement``, which skips the categorical preprocessing that
+    builds ``categories``. ``bin_categorical`` then took its user-splits
+    layout, where ``n_bins == len(splits) == 0``, and produced no bin label at
+    all: ``build()`` died with "All arrays must be of the same length" and
+    ``transform`` returned nan for every record. An empty split set now means
+    the single bin ``user_splits=None`` gives when no split survives.
+    """
+    optb = ContinuousOptimalBinning(dtype="categorical", user_splits=[])
+    optb.fit(x_cat, y_cat)
+
+    assert optb.status == "OPTIMAL"
+
+    # one bin, holding every category
+    assert len(optb.splits) == 1
+    assert sorted(optb.splits[0]) == ["a", "b", "c", "rare"]
+
+    df = optb.binning_table.build()
+
+    assert list(df["Bin"])[1:-1] == ["Special", "Missing"]
+    assert list(df["Count"])[:-1] == [len(x_cat), 0, 0]
+    assert df["Mean"].values[0] == approx(y_cat.mean(), rel=1e-9)
+
+    # one bin: every record transforms to the overall mean
+    assert optb.transform(x_cat) == approx(
+        np.full(len(x_cat), y_cat.mean()), rel=1e-9)
+
+
+def test_json_round_trip_special_codes_ndarray(tmp_path):
+    """``special_codes`` may be an ndarray, and ndarrays are not JSON.
+
+    ``to_json`` wrote ``table.special_codes`` raw while every other array
+    attribute went through ``_json_value``, so it raised ``TypeError: Object
+    of type ndarray is not JSON serializable``. The dict form has the same
+    problem one level down, in its values.
+    """
+    xs = x.copy()
+    xs[:5] = -1.
+    xs[5:10] = -2.
+
+    for special_codes in (np.array([-1., -2.]),
+                          {"a": np.array([-1.]), "b": [-2.]}):
+        optb = ContinuousOptimalBinning(special_codes=special_codes,
+                                        max_n_prebins=6)
+        optb.fit(xs, y)
+
+        path = str(tmp_path / "continuous_special_codes.json")
+        optb.to_json(path)
+
+        optb_json = ContinuousOptimalBinning()
+        optb_json.read_json(path)
+
+        assert optb_json.transform(xs) == approx(optb.transform(xs),
+                                                 rel=1e-12)

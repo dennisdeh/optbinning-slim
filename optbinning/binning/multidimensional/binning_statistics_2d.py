@@ -233,24 +233,39 @@ class BinningTable2D(BinningTable):
         t_n_nonevent = n_nonevent.sum()
         t_n_event = n_event.sum()
         t_n_records = t_n_nonevent + t_n_event
-        t_event_rate = t_n_event / t_n_records
 
-        p_records = n_records / t_n_records
+        # A solver that returned no solution -- an exhausted time limit, an
+        # infeasible model -- selects no rectangle, and the table is left
+        # holding only the empty Special and Missing rows.
+        if t_n_records:
+            t_event_rate = t_n_event / t_n_records
+            p_records = n_records / t_n_records
+        else:
+            t_event_rate = 0.
+            p_records = np.zeros(len(n_records))
 
         # A single-class target leaves one of the two totals at zero, so both
-        # event distributions, the WoE constant and the WoE matrix would be
-        # 0/0. Every rectangle is pure in that case and carries zero WoE and
-        # zero divergence; the all-zero distributions are what keep KS finite.
+        # event distributions and the WoE constant would be 0/0. Every
+        # rectangle is pure in that case and carries zero WoE and zero
+        # divergence; the all-zero distributions are what keep KS finite.
         if t_n_event and t_n_nonevent:
             p_event = n_event / t_n_event
             p_nonevent = n_nonevent / t_n_nonevent
             constant = np.log(t_n_event / t_n_nonevent)
-            W = np.log(1 / self.D - 1) + constant
         else:
             p_event = np.zeros(len(n_event))
             p_nonevent = np.zeros(len(n_nonevent))
             constant = 0.
-            W = np.zeros_like(self.D)
+
+        # The WoE matrix is per cell, so it is gated on the cell event rate
+        # it divides by, not on the totals: D is built from the clean grid
+        # alone, and a grid whose cells are all events still has a mixed
+        # total once the Missing bucket is counted in. A pure cell carries
+        # zero WoE, the same rule the WoE column below applies to a pure
+        # bin.
+        W = np.zeros_like(self.D, dtype=float)
+        mask_D = (self.D > 0) & (self.D < 1)
+        W[mask_D] = np.log(1 / self.D[mask_D] - 1) + constant
 
         mask = (n_event > 0) & (n_nonevent > 0)
         event_rate = np.zeros(len(n_records))
@@ -691,8 +706,15 @@ class ContinuousBinningTable2D(ContinuousBinningTable):
 
         t_n_records = np.nansum(self.n_records)
         t_sum = np.nansum(self.sums)
-        t_mean = t_sum / t_n_records
-        p_records = self.n_records / t_n_records
+
+        # A solver that returned no solution selects no rectangle, and the
+        # table is left holding only the empty Special and Missing rows.
+        if t_n_records:
+            t_mean = t_sum / t_n_records
+            p_records = self.n_records / t_n_records
+        else:
+            t_mean = 0.
+            p_records = np.zeros(len(self.n_records))
 
         mask = (self.n_records > 0)
         self._mean = np.zeros(len(self.n_records))

@@ -110,6 +110,12 @@ class PWBinningTable(BinningTable):
         Returns
         -------
         binning_table : pandas.DataFrame
+
+        Notes
+        -----
+        The ``c0`` entry of the special and missing rows is the empirical
+        event rate of that bucket, reported wherever the bucket holds
+        records -- 1 for an all-event bucket, 0 for an all-non-event one.
         """
         _check_build_parameters(show_digits, add_totals)
 
@@ -120,11 +126,23 @@ class PWBinningTable(BinningTable):
         self._t_n_event = n_event.sum()
         n_records = n_event + n_nonevent
         t_n_records = self._t_n_nonevent + self._t_n_event
-        p_records = n_records / t_n_records
 
-        mask = (n_event > 0) & (n_nonevent > 0)
+        # An empty table has no shares to report.
+        if t_n_records:
+            p_records = n_records / t_n_records
+        else:
+            p_records = np.zeros(len(n_records))
+
+        # The event rate is a property of the bin on its own, so it is gated
+        # on records: an all-event bin reports 1 and an all-non-event bin 0.
+        # This is not cosmetic -- the tail of this array becomes the c0
+        # column of the special and missing rows, which is the constant
+        # `transform(metric="event_rate", metric_special="empirical")`
+        # returns for those buckets.
         event_rate = np.zeros(len(n_records))
-        event_rate[mask] = n_event[mask] / n_records[mask]
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
 
         self._n_records = n_records
 

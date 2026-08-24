@@ -10,6 +10,8 @@ parameter checkers accept: list, numpy.ndarray and dict.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -20,7 +22,10 @@ from optbinning import ContinuousOptimalBinning
 from optbinning import ContinuousOptimalPWBinning
 from optbinning import MulticlassOptimalBinning
 from optbinning import OptimalBinning
+from optbinning import OptimalBinning2D
 from optbinning import OptimalPWBinning
+from optbinning.binning.transformations import (
+    transform_event_rate_to_woe)
 from sklearn.datasets import load_breast_cancer
 from sklearn.datasets import load_wine
 from tests.datasets import load_boston
@@ -110,6 +115,9 @@ def test_special_codes_ndarray_binary():
     t_array = optb_array.transform(x_special)
 
     assert optb_array.status == "OPTIMAL"
+    # A solver tie would move the split points and show up as a transform
+    # mismatch; check the fit first so the failure names the real cause.
+    assert np.array_equal(optb_list.splits, optb_array.splits)
     assert t_array == approx(t_list, rel=1e-9)
 
 
@@ -119,6 +127,8 @@ def test_special_codes_ndarray_binary_metrics():
 
     optb_array = OptimalBinning(special_codes=SPECIAL_ARRAY)
     optb_array.fit(x_special, y)
+
+    assert np.array_equal(optb_list.splits, optb_array.splits)
 
     for metric in ("woe", "event_rate", "indices"):
         t_list = optb_list.transform(x_special, metric=metric,
@@ -204,6 +214,7 @@ def test_special_codes_ndarray_continuous():
     t_array = optb_array.transform(x_continuous_special)
 
     assert optb_array.status == "OPTIMAL"
+    assert np.array_equal(optb_list.splits, optb_array.splits)
     assert t_array == approx(t_list, rel=1e-9)
 
     t_bins = optb_array.transform(x_continuous_special, metric="bins")
@@ -234,6 +245,7 @@ def test_special_codes_ndarray_multiclass():
     t_array = optb_array.transform(x_multiclass_special)
 
     assert optb_array.status == "OPTIMAL"
+    assert np.array_equal(optb_list.splits, optb_array.splits)
     assert t_array == approx(t_list, rel=1e-9)
 
     t_bins = optb_array.transform(x_multiclass_special, metric="bins")
@@ -255,6 +267,8 @@ def test_special_codes_ndarray_piecewise_binary():
 
     optb_array = OptimalPWBinning(special_codes=SPECIAL_ARRAY)
     optb_array.fit(x_special, y)
+
+    assert np.array_equal(optb_list.splits, optb_array.splits)
 
     t_list = optb_list.transform(x_special, metric="event_rate")
     t_array = optb_array.transform(x_special, metric="event_rate")
@@ -291,6 +305,7 @@ def test_special_codes_ndarray_piecewise_continuous():
     optb_array.fit(x_continuous_special, y_continuous)
     t_array = optb_array.transform(x_continuous_special)
 
+    assert np.array_equal(optb_list.splits, optb_array.splits)
     assert t_array == approx(t_list, rel=1e-9)
 
 
@@ -319,3 +334,164 @@ def test_special_codes_ndarray_binning_process():
     t_array = process_array.transform(df_special)
 
     assert t_array.values == approx(t_list.values, rel=1e-9)
+
+
+def test_pure_special_bucket_event_rate_parity_binary():
+    # A special bucket holding only events. The bucket is pure, so its WoE
+    # is 0, but its event rate is 1 -- and build() and transform() must
+    # report the same number for it.
+    x_pure = x.copy()
+    x_pure[np.flatnonzero(y == 1)[:40]] = SPECIAL_A
+
+    optb = OptimalBinning(special_codes=[SPECIAL_A])
+    optb.fit(x_pure, y)
+
+    df = optb.binning_table.build()
+    row = df[df["Bin"] == "Special"].iloc[0]
+
+    assert row["Non-event"] == 0
+    assert row["Event"] == 40
+    assert row["Event rate"] == approx(1.0)
+    assert row["WoE"] == approx(0.0)
+
+    t = optb.transform(np.array([SPECIAL_A]), metric="event_rate",
+                       metric_special="empirical")
+    assert t == approx([row["Event rate"]])
+
+    t_woe = optb.transform(np.array([SPECIAL_A]), metric="woe",
+                           metric_special="empirical")
+    assert t_woe == approx([row["WoE"]])
+
+
+def test_pure_special_bucket_event_rate_parity_binary_dict():
+    # The dict form reports one row per named bucket; each must agree with
+    # the transform of its own code.
+    x_pure = _plant(x)
+    y_pure = y.copy()
+    y_pure[IDX_A] = 1
+    y_pure[IDX_B] = 0
+
+    optb = OptimalBinning(special_codes=SPECIAL_DICT)
+    optb.fit(x_pure, y_pure)
+
+    df = optb.binning_table.build()
+    rate_a = df[df["Bin"] == "code_a"].iloc[0]["Event rate"]
+    rate_b = df[df["Bin"] == "code_b"].iloc[0]["Event rate"]
+
+    assert rate_a == approx(1.0)
+    assert rate_b == approx(0.0)
+
+    t = optb.transform(np.array([SPECIAL_A, SPECIAL_B]), metric="event_rate",
+                       metric_special="empirical")
+    assert t == approx([rate_a, rate_b])
+
+
+def test_single_class_target_transform_parity_binary():
+    # A single-class target is degenerate but legal: one bin, event rate 1,
+    # WoE 0 -- and no RuntimeWarning may escape the transform.
+    x_deg = np.arange(200.)
+    y_deg = np.ones(200, dtype=int)
+
+    optb = OptimalBinning()
+    optb.fit(x_deg, y_deg)
+
+    assert optb.status == "OPTIMAL"
+
+    df = optb.binning_table.build()
+    assert df["Event rate"].iloc[0] == approx(1.0)
+    assert df["WoE"].iloc[0] == approx(0.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        t_er = optb.transform(x_deg, metric="event_rate")
+        t_woe = optb.transform(x_deg, metric="woe")
+
+    assert t_er == approx(np.full(200, df["Event rate"].iloc[0]))
+    assert t_woe == approx(np.zeros(200))
+
+
+def test_pure_special_bucket_event_rate_parity_2d():
+    rng = np.random.RandomState(0)
+    n = 800
+    x2 = rng.normal(size=n)
+    y2 = rng.normal(size=n)
+    z2 = (rng.rand(n) < 0.4).astype(int)
+
+    idx = np.flatnonzero(z2 == 1)[:50]
+    x2[idx] = SPECIAL_A
+    y2[idx] = SPECIAL_A
+
+    optb = OptimalBinning2D(special_codes_x=[SPECIAL_A],
+                            special_codes_y=[SPECIAL_A])
+    optb.fit(x2, y2, z2)
+
+    df = optb.binning_table.build()
+    row = df[df["Bin x"] == "Special"].iloc[0]
+
+    assert row["Event rate"] == approx(1.0)
+
+    t = optb.transform(np.array([SPECIAL_A]), np.array([SPECIAL_A]),
+                       metric="event_rate", metric_special="empirical")
+    assert t == approx([row["Event rate"]])
+
+
+def test_single_class_target_transform_parity_2d():
+    rng = np.random.RandomState(0)
+    n = 300
+    x2 = rng.normal(size=n)
+    y2 = rng.normal(size=n)
+    z2 = np.ones(n, dtype=int)
+
+    optb = OptimalBinning2D()
+    optb.fit(x2, y2, z2)
+
+    assert optb.status == "OPTIMAL"
+
+    df = optb.binning_table.build()
+    assert df["Event rate"].iloc[0] == approx(1.0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        t_er = optb.transform(x2, y2, metric="event_rate")
+        t_woe = optb.transform(x2, y2, metric="woe")
+
+    assert t_er == approx(np.full(n, df["Event rate"].iloc[0]))
+    assert t_woe == approx(np.zeros(n))
+
+
+def test_unknown_category_uses_the_whole_sample_event_rate():
+    # cat_unknown defaults to the mean event rate of the sample. The
+    # numerator counts every record, so the denominator must too: n_records
+    # is truncated to the non-special bins whenever metric_special and
+    # metric_missing are numeric, which both inflates the rate and makes an
+    # unknown category depend on arguments that do not describe it.
+    rng = np.random.RandomState(0)
+    cats = np.array(["A", "B", "C"])[rng.randint(0, 3, 60)].astype(object)
+    y_clean = (rng.rand(60) < 0.5).astype(int)
+
+    cats = np.concatenate([cats, np.full(240, "S", dtype=object)])
+    y_cat = np.concatenate([y_clean, np.ones(240, dtype=int)])
+
+    optb = OptimalBinning(dtype="categorical", special_codes=["S"],
+                          min_prebin_size=0.01)
+    optb.fit(cats, y_cat)
+
+    df = optb.binning_table.build()
+    total_rate = df.loc["Totals", "Event rate"]
+    expected_woe = transform_event_rate_to_woe(
+        total_rate, df.loc["Totals", "Non-event"], df.loc["Totals", "Event"])
+
+    unknown = np.array(["Z"], dtype=object)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        t_er = optb.transform(unknown, metric="event_rate")
+        t_woe = optb.transform(unknown, metric="woe")
+
+    assert t_er == approx([total_rate])
+    assert t_woe == approx([expected_woe])
+
+    # And the value of an unknown category does not depend on how the
+    # special bucket is transformed.
+    assert optb.transform(unknown, metric="event_rate",
+                          metric_special="empirical") == approx([total_rate])

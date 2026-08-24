@@ -641,10 +641,19 @@ class OptimalBinning2D(OptimalBinning):
             n_splits_y = len(splits_y)
 
             # The tree partitions the (n_splits_x + 1) x (n_splits_y + 1)
-            # grid, so an axis the pre-binning left unsplit zeroes the
-            # product and sklearn rejects max_leaf_nodes=0. Two is the
-            # smallest bound that still describes a partition.
-            clf_nodes = max(n_splits_x * n_splits_y, 2)
+            # grid of prebins, and model_data_cart admits only a rectangle
+            # that merges two or more leaves, so an answer of b bins needs
+            # at least 2b of them. Upstream's n_splits_x * n_splits_y budget
+            # degenerates on a small grid: an axis the pre-binning left
+            # unsplit zeroes it, and one split on each axis leaves it at
+            # one, both below the max_leaf_nodes=2 sklearn accepts. Flooring
+            # it at two is not enough either -- two leaves admit only their
+            # union, i.e. the whole grid, one bin and no signal. There the
+            # budget is the number of cells, the finest partition the grid
+            # has.
+            clf_nodes = n_splits_x * n_splits_y
+            if clf_nodes < 2:
+                clf_nodes = max((n_splits_x + 1) * (n_splits_y + 1), 2)
 
             indices_x = np.digitize(x_clean, splits_x, right=False)
             n_bins_x = n_splits_x + 1
@@ -701,9 +710,12 @@ class OptimalBinning2D(OptimalBinning):
         m, n = E.shape
         self._n_refinements = (m * n * (m + 1) * (n + 1)) // 4 - len(rows)
 
-        # solution matrices
-        D = np.empty(m * n, dtype=float)
-        P = np.empty(m * n, dtype=int)
+        # Solution matrices. The selected rectangles partition the grid, so
+        # every cell is written below -- unless the solver returned no
+        # solution at all, and then zeros are what the empty table reports
+        # rather than whatever np.empty picked up.
+        D = np.zeros(m * n, dtype=float)
+        P = np.zeros(m * n, dtype=int)
 
         # One entry per rectangle, each a list of flat grid-cell indices.
         # np.array(rows, dtype=object) gives that only while rows is ragged:
@@ -862,6 +874,15 @@ class OptimalBinning2D(OptimalBinning):
             self._cols = {c: [0] for c in range(E.size)}
             self._rows = rows
             self._c = np.zeros(1)
+
+            # No solver ran, so the estimator must carry no solver record:
+            # a refit onto a degenerate target would otherwise leave
+            # information() reporting the previous fit's objective, and
+            # splitting the new solver time against the old model-generation
+            # time gives a negative percentage.
+            self._optimizer = None
+            self._time_optimizer = None
+            self._time_model_data = 0.
             self._time_solver = time.perf_counter() - time_init
 
             if self.verbose:

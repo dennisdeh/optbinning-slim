@@ -724,25 +724,37 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         if self.dtype == "numerical":
             sketch_all = self._bsketch.merge_sketches()
 
-            if self.sketch == "gk":
-                percentiles = np.linspace(0, 1, self.max_n_prebins + 1)
+            if not sketch_all.n:
+                # Every record so far was a special code or missing. There
+                # is no clean value to place a quantile between, so the
+                # stream has no split point and its single bin is empty --
+                # a degenerate stream is legal input, not an error.
+                splits = np.array([])
+            else:
+                if self.sketch == "gk":
+                    percentiles = np.linspace(0, 1, self.max_n_prebins + 1)
 
-                splits = np.array([sketch_all.quantile(p)
-                                   for p in percentiles[1:-1]])
-            elif self.sketch == "t-digest":
-                percentiles = np.linspace(0, 100, self.max_n_prebins + 1)
+                    splits = np.array([sketch_all.quantile(p)
+                                       for p in percentiles[1:-1]])
+                elif self.sketch == "t-digest":
+                    percentiles = np.linspace(0, 100,
+                                              self.max_n_prebins + 1)
 
-                splits = np.array([sketch_all.percentile(p)
-                                   for p in percentiles[1:-1]])
+                    splits = np.array([sketch_all.percentile(p)
+                                       for p in percentiles[1:-1]])
 
-            # Same rounding OptimalBinning._prebinning_refinement applies, and
-            # for the same reason: split_digits describes the split points the
-            # user sees, so it has to be applied before the counts are taken.
-            # Rounding can collapse two quantiles onto one value; the empty
-            # prebin that leaves is dropped by _compute_prebins below, which
-            # is why np.unique is not needed here (unlike the 2-D path).
-            if self.split_digits is not None:
-                splits = np.round(splits, self.split_digits)
+                # Same rounding OptimalBinning._prebinning_refinement
+                # applies, and for the same reason: split_digits describes
+                # the split points the user sees, so it has to be applied
+                # before the counts are taken. Rounding can collapse two
+                # quantiles onto one value, and the duplicate has to be
+                # dropped here: _compute_prebins removes the empty prebin
+                # it leaves only on the iv/js branch, while "hellinger" and
+                # "triangular" merely raise _flag_min_n_event_nonevent and
+                # pass the duplicates to the optimizer -- MODEL_INVALID for
+                # the former, a TypeError out of OR-Tools for the latter.
+                if self.split_digits is not None:
+                    splits = np.unique(np.round(splits, self.split_digits))
 
             splits, n_nonevent, n_event = self._compute_prebins(splits)
         else:

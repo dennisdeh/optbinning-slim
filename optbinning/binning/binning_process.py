@@ -75,14 +75,19 @@ def _transform_base_metric(metric, names, binning_transform_params):
 
     The transformed array is allocated once, from a single dtype, while every
     variable is transformed with its own
-    ``binning_transform_params[name]["metric"]``. Metrics of different dtypes
-    therefore cannot be mixed: "bins" yields strings, "indices" integers and
-    every other metric floats, and numpy coerces the odd one out rather than
-    complaining -- WoE written into an integer array is silently truncated.
+    ``binning_transform_params[name]["metric"]``: "bins" yields strings,
+    "indices" integers and every other metric floats, and numpy coerces the
+    odd one out rather than complaining.
+
+    Only two of those coercions lose the value, and only those are rejected.
+    Strings do not survive a float array at all, and a float written into the
+    integer array an "indices" base metric allocates is truncated -- WoE
+    -2.407 is stored as -2. A per-variable "indices" under a numeric or
+    default base metric is lossless and stays allowed: that array is float64
+    and a bin index is a small integer, which it holds exactly.
 
     Returns the metric the output array must be built from: the single metric
-    they all agree on, or ``metric`` when they differ only among the numeric
-    ones.
+    every variable agrees on, or ``metric`` when they differ.
     """
     if binning_transform_params is None:
         return metric
@@ -103,9 +108,10 @@ def _transform_base_metric(metric, names, binning_transform_params):
         raise ValueError(
             "metric 'bins' cannot be mixed with numeric metrics.")
 
-    if "indices" in metrics:
+    if metric == "indices":
         raise ValueError(
-            "metric 'indices' cannot be mixed with other metrics.")
+            "metric 'indices' cannot be mixed with other metrics: the "
+            "transformed array is integer and would truncate them.")
 
     return metric
 
@@ -574,9 +580,12 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
         variables. Example ``{"variable_1": {"metric": "event_rate"}}``. An
         option given here applies to that variable only; the transform
         arguments still apply to every other variable. The transformed array
-        holds a single dtype, so a ``metric`` given here must share it with
-        the transform metric: "bins" (strings) and "indices" (integers)
-        cannot be mixed with the numeric metrics or with each other.
+        holds a single dtype, so a ``metric`` given here must be storable in
+        it: "bins" yields strings and cannot be mixed with any other metric,
+        and nothing else can be mixed into the integer array that a transform
+        metric of "indices" allocates. A per-variable "indices" under a
+        numeric or default transform metric is allowed -- that array is
+        float, which holds a bin index exactly.
 
     n_jobs : int or None, optional (default=None)
         Number of cores to run in parallel while binning variables.
@@ -1060,8 +1069,13 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
 
         optb_types = _OPTB_TYPES + _OPTBPW_TYPES
 
-        if (not isinstance(optb, optb_types)
-                or isinstance(optb, _OPTB_2D_TYPES)):
+        if isinstance(optb, _OPTB_2D_TYPES):
+            raise TypeError("Object {}: the two-dimensional estimators bin "
+                            "a pair of variables and cannot be a binning "
+                            "process variable; got {}."
+                            .format(name, type(optb)))
+
+        if not isinstance(optb, optb_types):
             raise TypeError("Object {} must be of type ({}); got {}"
                             .format(name, optb_types, type(optb)))
 
@@ -1369,8 +1383,13 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             if not isinstance(name, str):
                 raise TypeError("Object key must be a string.")
 
-            if (not isinstance(optb, optb_types)
-                    or isinstance(optb, _OPTB_2D_TYPES)):
+            if isinstance(optb, _OPTB_2D_TYPES):
+                raise TypeError("Object {}: the two-dimensional estimators "
+                                "bin a pair of variables and cannot be a "
+                                "binning process variable; got {}."
+                                .format(name, type(optb)))
+
+            if not isinstance(optb, optb_types):
                 raise TypeError("Object {} must be of type ({}); got {}"
                                 .format(name, optb_types, type(optb)))
 

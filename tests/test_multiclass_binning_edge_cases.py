@@ -956,3 +956,31 @@ def test_defect_monotonic_trend_peak_valley_heuristic_ignored():
                 assert np.count_nonzero(signs[1:] != signs[:-1]) <= 1, (
                     "class {} event rate is not unimodal under {} "
                     "solver={}".format(c, trend, solver))
+
+
+def test_json_round_trip_special_codes_ndarray(tmp_path):
+    """``special_codes`` may be an ndarray, and ndarrays are not JSON.
+
+    ``to_json`` wrote ``table.special_codes`` raw while every other attribute
+    was converted, so it raised ``TypeError: Object of type ndarray is not
+    JSON serializable``. The dict form has the same problem in its values.
+    """
+    x_special = x.copy()
+    x_special[:20] = -1.0
+    x_special[20:30] = -2.0
+
+    for special_codes in (np.array([-1., -2.]),
+                          {"a": np.array([-1.]), "b": [-2.]}):
+        optb = MulticlassOptimalBinning(name="v",
+                                        special_codes=special_codes,
+                                        **PREBIN)
+        optb.fit(x_special, y)
+
+        path = str(tmp_path / "multiclass_special_codes.json")
+        optb.to_json(path)
+
+        optb_json = MulticlassOptimalBinning()
+        optb_json.read_json(path)
+
+        assert optb_json.transform(x_special) == approx(
+            optb.transform(x_special), rel=1e-12)

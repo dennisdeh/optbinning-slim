@@ -10,7 +10,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
-from ..information import mark_solve_skipped
+from ..information import mark_no_solution
 from .model_data import model_data
 
 
@@ -182,20 +182,19 @@ class BinningMIP:
         # MPSolver.SetTimeLimit takes int64 milliseconds and reads 0 as "no
         # limit", whereas time_limit is validated as any non-negative number
         # of seconds and BinningCP hands the same value to CP-SAT as a
-        # double. Round to the nearest millisecond so a fractional limit is
-        # honoured instead of raising a SWIG TypeError, and never pass on a
-        # zero: a budget that rounds below one millisecond is no budget, and
-        # must not silently become an unbounded run. CP-SAT reports UNKNOWN
-        # for such a budget, and so does a MIP that runs out of time.
-        time_limit_ms = int(round(self.time_limit * 1000))
-
-        if time_limit_ms > 0:
-            self.solver_.SetTimeLimit(time_limit_ms)
+        # double. Rounding to whole milliseconds honours a fractional budget
+        # instead of raising a SWIG TypeError; clamping up to one keeps a
+        # positive budget from becoming the "no limit" sentinel without
+        # making half a millisecond the boundary between solving and not
+        # solving. Only an exact zero skips the solve, which is what CP-SAT
+        # does with a zero budget of its own.
+        if self.time_limit > 0:
+            self.solver_.SetTimeLimit(
+                max(1, int(round(self.time_limit * 1000))))
             status = self.solver_.Solve()
         else:
-            # The model is left built but unsolved, and information
-            # .solver_statistics is asked for its objective either way.
-            mark_solve_skipped(self.solver_)
+            # The model is left built but unsolved: CP-SAT answers UNKNOWN
+            # for a zero budget, and so must this.
             status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
@@ -215,6 +214,11 @@ class BinningMIP:
                 status_name = "UNBOUNDED"
             else:
                 status_name = "UNKNOWN"
+
+            # No solve, or a solve that produced nothing: the solver has no
+            # objective to report, and information.solver_statistics is
+            # asked for one either way.
+            mark_no_solution(self.solver_)
 
             solution = np.zeros(self._n, dtype=bool)
             solution[-1] = True

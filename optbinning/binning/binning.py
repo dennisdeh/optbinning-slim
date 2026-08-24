@@ -252,8 +252,12 @@ def _json_value(value):
     """Make a binning table attribute JSON serializable.
 
     ``categories``, ``cat_others`` and ``user_splits`` are numpy or pandas
-    arrays; ``json.dump`` refuses both.
+    arrays; ``json.dump`` refuses both. ``special_codes`` may be an array too,
+    or a dict whose values are arrays, so dicts are converted value by value.
     """
+    if isinstance(value, dict):
+        return {key: _json_value(v) for key, v in value.items()}
+
     if hasattr(value, "tolist"):
         return value.tolist()
 
@@ -432,7 +436,9 @@ class OptimalBinning(BaseOptimalBinning):
 
     user_splits : array-like or None, optional (default=None)
         The list of pre-binning split points when ``dtype`` is "numerical" or
-        the list of prebins when ``dtype`` is "categorical".
+        the list of prebins when ``dtype`` is "categorical". An empty list
+        means no split points, and gives a single bin holding every clean
+        record, whatever ``dtype`` is.
 
     user_splits_fixed : array-like or None (default=None)
         The list of pre-binning split points that must be fixed.
@@ -697,7 +703,7 @@ class OptimalBinning(BaseOptimalBinning):
                                        self.special_codes, self._categories,
                                        self._cat_others, self.cat_unknown,
                                        metric, metric_special, metric_missing,
-                                       self.user_splits, show_digits,
+                                       self._user_splits, show_digits,
                                        check_input)
 
     def information(self, print_level=1):
@@ -750,6 +756,18 @@ class OptimalBinning(BaseOptimalBinning):
         self._user_splits = self.user_splits
         self._user_splits_fixed = self.user_splits_fixed
 
+        # An empty user_splits is "no split points at all", which downstream
+        # is exactly what user_splits=None means: split_data still has to
+        # build the categories, and bin_categorical has to use its
+        # no-user-splits layout (n_bins == n_splits + 1), or a categorical fit
+        # ends up with no bin label at all against three count rows. The
+        # working copy is normalised to None and the empty split set is
+        # carried by no_user_splits instead.
+        no_user_splits = (self._user_splits is not None and
+                          not len(self._user_splits))
+        if no_user_splits:
+            self._user_splits = None
+
         # Pre-processing
         if self.verbose:
             logger.info("Pre-processing started.")
@@ -776,7 +794,7 @@ class OptimalBinning(BaseOptimalBinning):
          y_others, categories, cat_others, sw_clean, sw_missing,
          sw_special, sw_others] = split_data(
             self.dtype, x, y, self.special_codes, self.cat_cutoff,
-            self.user_splits, check_input, self.outlier_detector,
+            self._user_splits, check_input, self.outlier_detector,
             self.outlier_params, None, None, self.class_weight, sample_weight)
 
         self._time_preprocessing = time.perf_counter() - time_preprocessing
@@ -823,8 +841,8 @@ class OptimalBinning(BaseOptimalBinning):
 
         time_prebinning = time.perf_counter()
 
-        if self._user_splits is not None:
-            n_splits = len(self._user_splits)
+        if self._user_splits is not None or no_user_splits:
+            n_splits = 0 if no_user_splits else len(self._user_splits)
 
             if self.verbose:
                 logger.info("Pre-binning: user splits supplied: {}"
@@ -854,6 +872,13 @@ class OptimalBinning(BaseOptimalBinning):
                      cat_others, sw_clean, sw_others, sorted_idx,
                      ] = preprocessing_user_splits_categorical(
                         self._user_splits, x_clean, y_clean, sw_clean)
+
+                if self.dtype == "numerical":
+                    self._user_splits = user_splits
+                else:
+                    # categories holds the same groups as user_splits, in the
+                    # order preprocessing sorted them into.
+                    self._user_splits = categories
 
                 if self._user_splits_fixed is not None:
                     self._user_splits_fixed = np.asarray(
@@ -915,7 +940,7 @@ class OptimalBinning(BaseOptimalBinning):
         self._binning_table = BinningTable(
             self.name, self.dtype, self.special_codes, self._splits_optimal,
             self._n_nonevent, self._n_event, min_x, max_x, self._categories,
-            self._cat_others, self.user_splits)
+            self._cat_others, self._user_splits)
 
         self._time_postprocessing = time.perf_counter() - time_postprocessing
 
@@ -1226,7 +1251,7 @@ class OptimalBinning(BaseOptimalBinning):
             return self._splits_optimal
         else:
             return bin_categorical(self._splits_optimal, self._categories,
-                                   self._cat_others, self.user_splits)
+                                   self._cat_others, self._user_splits)
 
     @property
     def status(self):
@@ -1286,7 +1311,7 @@ class OptimalBinning(BaseOptimalBinning):
         opt_bin_dict = dict()
         opt_bin_dict['name'] = table.name
         opt_bin_dict['dtype'] = table.dtype
-        opt_bin_dict['special_codes'] = table.special_codes
+        opt_bin_dict['special_codes'] = _json_value(table.special_codes)
 
         if table.dtype == 'numerical':
             opt_bin_dict['splits'] = table.splits.tolist()

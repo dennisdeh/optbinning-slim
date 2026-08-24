@@ -15,15 +15,17 @@ from ..metrics import triangular
 
 def _check_rectangles(n_rectangles):
     # Every candidate rectangle was dropped, so there is no model to build
-    # and the divergence would be handed empty arrays.
+    # and the divergence would be handed empty arrays. A single-class target
+    # is no longer one of the causes: OptimalBinning2D._fit_optimizer
+    # answers it before either model_data function runs, and with both
+    # classes present the whole grid is itself a mixed rectangle -- so only
+    # a bin bound can empty the model.
     if not n_rectangles:
         raise ValueError(
             "No bin candidate satisfies the constraints: every rectangle "
-            "holds only events or only non-events, or violates a bin size "
-            "or bin count bound. Check that the target contains both "
-            "classes, and relax min_bin_size, max_bin_size, "
-            "min_bin_n_event, max_bin_n_event, min_bin_n_nonevent and "
-            "max_bin_n_nonevent.")
+            "violates a bin size or bin count bound. Relax min_bin_size, "
+            "max_bin_size, min_bin_n_event, max_bin_n_event, "
+            "min_bin_n_nonevent and max_bin_n_nonevent.")
 
 
 def _connected_rectangles(m, n, n_rectangles, monotonicity_x, monotonicity_y,

@@ -1122,10 +1122,13 @@ def test_defect_cart_on_a_single_cell_grid(cls, target):
 
 def test_defect_cart_with_one_unsplit_axis():
     # The same clf_nodes zero on a grid that is not degenerate at all: y is
-    # constant, x is not, so the grid is 1x4 and the tree does have a split
-    # to make. cart still reads the grid as one bin, because model_data_cart
-    # only admits a rectangle that merges two or more of its leaves and the
-    # floor leaves it exactly two; the point here is that it fits at all.
+    # constant, x is not, so the grid is 4x1 and the tree does have a split
+    # to make on x. Flooring the product at 2 got past sklearn's
+    # max_leaf_nodes bound but left the tree with exactly two leaves, and
+    # model_data_cart only admits a rectangle that merges two or more of
+    # them -- so the only candidate was their union, the whole grid: one
+    # bin, zero IV, status OPTIMAL and nothing discretised. An unsplit axis
+    # must not collapse the leaf budget.
     optb = OptimalBinning2D(strategy="cart", **prebins)
     optb.fit(x, np.ones(n_samples), z)
 
@@ -1133,13 +1136,31 @@ def test_defect_cart_with_one_unsplit_axis():
     assert optb._n_prebins > 1
 
     df = optb.binning_table.build()
-    assert df["Count"].iloc[0] == n_samples
+    assert len(optb.splits[0]) > 1
+    assert df["Count"].iloc[0] < n_samples
+    assert df.loc["Totals", "IV"] > 0
 
-    # The grid strategy searches every rectangle, so it separates x.
+    # The grid strategy searches every rectangle, so it separates x too.
     optb_grid = OptimalBinning2D(**prebins)
     optb_grid.fit(x, np.ones(n_samples), z)
 
     assert optb_grid.binning_table.build().loc["Totals", "IV"] > 0
+
+
+def test_defect_continuous_cart_with_one_unsplit_axis():
+    # The continuous twin of the leaf budget above: the same expression
+    # sits in ContinuousOptimalBinning2D._fit, feeding a
+    # DecisionTreeRegressor.
+    optb = ContinuousOptimalBinning2D(strategy="cart", **prebins)
+    optb.fit(x, np.ones(n_samples), zc)
+
+    assert optb.status == "OPTIMAL"
+    assert optb._n_prebins > 1
+
+    df = optb.binning_table.build()
+    assert len(optb.splits[0]) > 1
+    assert df["Count"].iloc[0] < n_samples
+    assert df.loc["Totals", "IV"] > 0
 
 
 def test_defect_cart_one_rectangle():
@@ -1208,13 +1229,14 @@ def test_defect_single_class_target(value, rate):
     # populated bin.
     assert table.gini == 0.0
 
-    # transform still maps every record onto the single bin. Only "woe" is
-    # asserted here: transform_binary_target in
-    # optbinning/binning/multidimensional/transformations_2d.py gates its
-    # event rate on mixedness, so metric="event_rate" answers 0.0 where this
-    # table answers 1.0, and its unguarded WoE constant leaks the
-    # RuntimeWarning this module reports on a single-class fit.
-    assert np.all(optb.transform(x, y, metric="woe") == 0.0)
+    # transform still maps every record onto the single bin, and answers
+    # what the table answers: transform_binary_target in
+    # optbinning/binning/multidimensional/transformations_2d.py splits the
+    # record gate from the mixedness gate the same way build() does.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert np.all(optb.transform(x, y, metric="woe") == 0.0)
+        assert np.all(optb.transform(x, y, metric="event_rate") == rate)
 
 
 @mark.parametrize("value", [0, 1])
@@ -1301,16 +1323,27 @@ def test_continuous_constant_target_is_a_single_bin():
 def test_defect_no_admissible_rectangle():
     optb = OptimalBinning2D(min_bin_n_event=100000, **prebins)
 
-    with raises(ValueError, match="No bin candidate"):
+    with raises(ValueError, match="No bin candidate") as excinfo:
         optb.fit(x, y, z)
+
+    # The bin bounds are the only cause left. A single-class target is
+    # answered by _fit_optimizer before model_data runs
+    # (test_defect_single_class_target), and with both classes present the
+    # whole grid is always a mixed rectangle -- so the message must stop
+    # sending the user to look at the target.
+    assert "both classes" not in str(excinfo.value)
+    assert "min_bin_n_event" in str(excinfo.value)
 
 
 def test_defect_cart_no_admissible_rectangle():
     optb = OptimalBinning2D(strategy="cart", min_bin_n_event=100000,
                             **prebins)
 
-    with raises(ValueError, match="No bin candidate"):
+    with raises(ValueError, match="No bin candidate") as excinfo:
         optb.fit(x, y, z)
+
+    assert "both classes" not in str(excinfo.value)
+    assert "min_bin_n_event" in str(excinfo.value)
 
 
 def test_defect_split_digits_is_ignored():
@@ -1391,3 +1424,139 @@ def test_defect_continuous_gamma_with_cp_solver(strategy):
 
     assert optb.status == "OPTIMAL"
     assert len(optb.splits[0]) <= len(unregularized.splits[0])
+
+
+def test_defect_woe_matrix_on_a_pure_clean_grid():
+    # The WoE *matrix* is a per-cell quantity but was gated on the table
+    # totals: it is computed from the per-cell event-rate matrix D, while
+    # the guard tested t_n_event and t_n_nonevent. _prebinning_matrices
+    # builds D from the clean grid alone -- the specials and the missing
+    # bucket are counted separately -- so a fit whose clean records all
+    # carry the same class while the missing bucket carries both leaves the
+    # totals mixed, the guard silent, D == 1.0 and log(1 / 1 - 1) leaking
+    # `divide by zero encountered in log` out of build(), with _W at -inf.
+    xm = x.copy()
+    ym = y.copy()
+    zm = np.ones(n_samples, dtype=int)
+
+    xm[:40] = np.nan
+    ym[:40] = np.nan
+    zm[:40] = np.tile([0, 1], 20)
+
+    optb = OptimalBinning2D(**prebins)
+    optb.fit(xm, ym, zm)
+
+    assert optb.status == "OPTIMAL"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        df = optb.binning_table.build()
+
+    # The clean grid is one all-event cell, so its WoE is zero -- the same
+    # rule the WoE column already applied to it. The totals are not
+    # degenerate: the Missing bucket carries both classes and its IV is
+    # what the table reports.
+    assert np.all(np.isfinite(optb.binning_table._W))
+    assert np.all(optb.binning_table._W == 0.0)
+    assert df["Event rate"][0] == 1.0
+    assert df["WoE"][0] == 0.0
+    assert df["IV"][0] == 0.0
+    assert df["IV"][2] > 0
+    assert df.loc["Totals", "IV"] > 0
+
+
+def test_woe_matrix_matches_the_woe_column():
+    # A pin, not a regression test: it has never been red. The per-cell
+    # gate added above must leave a mixed grid exactly as it was, so every
+    # cell of _W still carries log(1 / D - 1) + log(t_event / t_nonevent).
+    optb = OptimalBinning2D(**prebins)
+    optb.fit(x, y, z)
+
+    table = optb.binning_table
+    df = table.build()
+
+    n_event = df["Event"].iloc[:-3].sum()
+    n_nonevent = df["Non-event"].iloc[:-3].sum()
+    constant = np.log(n_event / n_nonevent)
+
+    D = table.D
+    expected = np.log(1 / D - 1) + constant
+
+    assert np.all((D > 0) & (D < 1))
+    assert table._W == approx(expected)
+
+    # Every cell of a bin carries that bin's WoE.
+    woe = df["WoE"].iloc[:-3].to_numpy(dtype=float)
+    assert set(np.round(table._W.ravel(), 12)) == set(np.round(woe, 12))
+
+
+def test_defect_refit_single_class_reports_the_fit_that_happened(capsys):
+    # The degenerate branch of _fit_optimizer skips the solver, so it must
+    # also drop the previous fit's solver record. It set _time_solver and
+    # left _optimizer, _time_optimizer and _time_model_data alone, so
+    # information() printed the discarded run's objective and split the new
+    # (near-zero) solver time against the old model-generation time, giving
+    # a negative percentage.
+    optb = OptimalBinning2D(**prebins)
+    optb.fit(x, y, z)
+
+    assert optb._optimizer is not None
+
+    optb.fit(x, y, np.ones(n_samples, dtype=int))
+
+    assert optb.status == "OPTIMAL"
+    assert optb._optimizer is None
+    assert optb._time_optimizer is None
+    assert optb._time_model_data == 0.
+
+    optb.information(print_level=2)
+    out = capsys.readouterr().out
+
+    assert "Solver statistics" not in out
+    assert "Objective value" not in out
+    assert "model generation" not in out
+
+
+@mark.parametrize("solver", ["cp", "mip"])
+def test_defect_build_without_a_solution_no_warning(solver):
+    # time_limit=0 is no budget at all: both solvers report UNKNOWN and
+    # select no rectangle, so every count in the table is zero and
+    # t_n_records with it. build() divided by it twice -- t_n_event /
+    # t_n_records and n_records / t_n_records -- and leaked `invalid value
+    # encountered in divide`. Clause 4 of the degenerate-input contract:
+    # guard the divides, do not silence them.
+    optb = OptimalBinning2D(solver=solver, time_limit=0, **prebins)
+    optb.fit(x, y, z)
+
+    assert optb.status == "UNKNOWN"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        df = optb.binning_table.build()
+
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+    assert df.loc["Totals", "Count"] == 0
+    assert df.loc["Totals", "Event rate"] == 0.0
+    assert df["Count (%)"].iloc[0] == 0.0
+    assert np.all(np.isfinite(optb.binning_table._W))
+
+
+@mark.parametrize("solver", ["cp", "mip"])
+def test_defect_continuous_build_without_a_solution_no_warning(solver):
+    # The same two divides in ContinuousBinningTable2D.build: t_sum /
+    # t_n_records and n_records / t_n_records.
+    optb = ContinuousOptimalBinning2D(solver=solver, time_limit=0, **prebins)
+    optb.fit(x, y, zc)
+
+    assert optb.status == "UNKNOWN"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        df = optb.binning_table.build()
+
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+    assert df.loc["Totals", "Count"] == 0
+    assert df.loc["Totals", "Mean"] == 0.0
+    assert df["Count (%)"].iloc[0] == 0.0

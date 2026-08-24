@@ -9,7 +9,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
-from ...information import mark_solve_skipped
+from ...information import mark_no_solution
 from .mip import CFMIP
 
 
@@ -228,18 +228,16 @@ class MCFMIP(CFMIP):
                     pre_objs[name] = self._objectives[name].solution_value()
 
     def solve(self):
-        # See CFMIP.solve: the budget is rounded to whole milliseconds, and
-        # one that rounds below a millisecond skips the solve instead of
-        # becoming MPSolver's "no limit".
-        time_limit_ms = int(round(self.time_limit * 1000))
-
+        # See CFMIP.solve: the budget is rounded to whole milliseconds and
+        # clamped up to one, so it never reaches MPSolver as its "no limit"
+        # sentinel, and only an exact zero skips the solve.
         self.solver_.SetNumThreads(self.n_jobs)
 
-        if time_limit_ms > 0:
-            self.solver_.SetTimeLimit(time_limit_ms)
+        if self.time_limit > 0:
+            self.solver_.SetTimeLimit(
+                max(1, int(round(self.time_limit * 1000))))
             status = self.solver_.Solve()
         else:
-            mark_solve_skipped(self.solver_)
             status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
@@ -271,6 +269,9 @@ class MCFMIP(CFMIP):
                 status_name = "UNBOUNDED"
             else:
                 status_name = "UNKNOWN"
+
+            # No objective to report -- see CFMIP.solve.
+            mark_no_solution(self.solver_)
 
             solution = None
 
