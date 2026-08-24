@@ -132,6 +132,12 @@ conda activate optbinning
   failure.
 - `.idea/` (PyCharm) is untracked and **not** in `.gitignore`. Never `git add -A` from
   the repo root without checking `git status` first.
+- **`git add tests/` is not safe either** — it looks scoped and is not. It sweeps in
+  `tests/results/`, which every run rewrites, so a task that touched no plot commits a
+  dozen regenerated PNGs and can promote artifacts that were untracked before it
+  started. Stage by explicit path (`git add tests/test_foo.py`), and read
+  `git status --short` between staging and committing. See *Testing* for what those
+  artifacts are and when a change to them is legitimate.
 
 ## Testing  **[core]**
 
@@ -139,7 +145,7 @@ conda activate optbinning
   background the runner or spawn polling loops unless explicitly agreed.
 
   ```bash
-  pytest                                                        # 19 test modules
+  pytest                                                        # 35 test modules
   flake8 . --count --select=E9,F63,F7,F82 --exclude=.venv --show-source --statistics
   ```
 
@@ -291,4 +297,4 @@ which plausible-looking action is the wrong one.
 **Prune as well as add.** Delete a rule when its check exists, when the subsystem it
 guards is gone, or when it has never once been the thing that went wrong.
 
-*Last updated: 2026-08-23*
+*Last updated: 2026-08-24*
