@@ -217,6 +217,26 @@ exception was raised, the output merely was not what it claimed to be.
 - `actions/checkout`, `actions/setup-python` and `actions/upload-artifact`
   bumped to v5, v6 and v5, clearing the Node 20 deprecation warnings.
 
+### Release automation
+
+- **Releases publish themselves.** Pushing an annotated `vX.Y.Z` tag runs the
+  new `.github/workflows/release.yml`, which verifies the tag against
+  `optbinning/_version.py` and `CHANGELOG.md`, runs the full test matrix,
+  uploads the sdist and wheel to PyPI, and opens the GitHub release with that
+  version's changelog section as its notes. 0.22.0 was uploaded by hand with
+  `twine`; nothing after it needs to be.
+- **The PyPI upload authenticates with trusted publishing (OIDC).** No API
+  token exists in the repository or in its secrets, and the published files now
+  carry [PEP 740](https://peps.python.org/pep-0740/) attestations tying each one
+  to the workflow run and commit that built it — visible on the PyPI file
+  listing.
+- **The CI workflow gained a `workflow_call` trigger**, so the release reuses
+  the existing matrix and its `package` job rather than keeping a second copy of
+  either. The distribution that `twine check --strict` passed in CI is
+  byte-for-byte the one uploaded to PyPI.
+- The README's PyPI badge now reads the live version from shields.io instead of
+  quoting a literal that every release had to remember to bump.
+
 ## 0.22.0 (2026-08-23)
 
 First release of the fork, branched at upstream 0.21.0. On PyPI as

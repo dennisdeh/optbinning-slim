@@ -3,8 +3,8 @@
 ![CI](https://github.com/dennisdeh/optbinning-slim/workflows/CI/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
-![PyPI](https://img.shields.io/badge/pypi-optbinning--slim%200.22.0-blue)
-![Tests](https://img.shields.io/badge/tests-1095%20passed-brightgreen)
+[![PyPI](https://img.shields.io/pypi/v/optbinning-slim)](https://pypi.org/project/optbinning-slim/)
+![Tests](https://img.shields.io/badge/tests-1110%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 
 > ### Attribution
@@ -135,12 +135,33 @@ Extras: `distributed` → `pympler`, `tdigest`. `ecos` → `ecos`.
 `test` → `coverage`, `ecos`, `flake8`, `pyarrow`, `pympler`, `pytest`, `tdigest`.
 `dev` → all extras plus `build`, `twine`.
 
-### Building a release
+### Releasing
+
+Releases are published by GitHub Actions, not from a laptop. Pushing an annotated
+`vX.Y.Z` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which checks the tag against `optbinning/_version.py` and `CHANGELOG.md`, runs the
+full CI matrix, uploads the sdist and wheel to PyPI, and opens the GitHub release
+with that version's changelog section as its notes.
+
+```bash
+# on master, version bumped and CHANGELOG.md updated in the same commit
+git tag -a v0.23.0 -m "..."
+git push origin v0.23.0
+```
+
+The upload authenticates with PyPI [trusted publishing](https://docs.pypi.org/trusted-publishers/)
+(OIDC): there is no API token in the repository or in its secrets, and every file
+carries a [PEP 740](https://peps.python.org/pep-0740/) attestation tying it to the
+workflow run that built it. The publisher registered on PyPI is bound to the owner,
+the repository, the workflow filename `release.yml` and the GitHub environment
+`pypi` — renaming any of the four breaks the upload until it is re-registered at
+<https://pypi.org/manage/project/optbinning-slim/settings/publishing/>.
+
+To build and check the artifacts locally, without publishing:
 
 ```bash
 python -m build                   # sdist + wheel into dist/
 python -m twine check --strict dist/*
-python -m twine upload dist/*     # requires a PyPI token
 ```
 
 ---
@@ -159,9 +180,9 @@ Current status — *measured 2026-08-24 on Python 3.13.15*:
 
 | | |
 |---|---|
-| **Result** | **1095 passed, 0 failed** (26 warnings) |
+| **Result** | **1110 passed, 0 failed** (26 warnings) |
 | **Test modules** | 35 |
-| **Wall clock** | 241 s (binning problems are real solver runs; the suite is not instant) |
+| **Wall clock** | 215 s (binning problems are real solver runs; the suite is not instant) |
 | **Statement coverage** | **99%** — 11,564 statements, 13 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 

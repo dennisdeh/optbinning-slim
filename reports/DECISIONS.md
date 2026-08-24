@@ -674,3 +674,59 @@ Fifteen `transform` / `fit_transform` docstrings now declare
 `float, str or dict`. The eight that still say `float or str` are the estimators
 whose `_check_parameters` does not accept a dict `special_codes` at all — the
 sketch, scenario and 2D families — and are correct as they stand.
+
+## Releases publish from GitHub Actions, by tag, with trusted publishing
+
+*Last updated: 2026-08-24*
+
+0.22.0 was built and uploaded by hand (`python -m build`, `twine upload`) on
+2026-08-23. From the next release, `.github/workflows/release.yml` does it: it fires
+on a `v*` tag push, and PyPI is reached through
+[trusted publishing](https://docs.pypi.org/trusted-publishers/) rather than an API
+token.
+
+**OIDC over an API token.** A PyPI token stored as a repository secret is a
+long-lived credential with upload rights to the project, readable by any workflow
+in the repository and by anyone who can push one — including a workflow added in a
+pull request. Trusted publishing mints a token that lives for fifteen minutes, is
+scoped to this project, and is issued only to a run that matches all four of: owner
+`dennisdeh`, repository `optbinning-slim`, workflow filename `release.yml`, and
+GitHub environment `pypi`. It also enables PEP 740 attestations, which a token
+upload cannot produce. The cost is that those four names are now load-bearing:
+renaming the workflow file or the environment silently breaks the upload until the
+publisher is re-registered on PyPI. That is why the binding is spelled out in the
+header of `release.yml` itself.
+
+**The release reuses the CI workflow instead of restating it.** `python-package.yml`
+gained a `workflow_call` trigger, and the release calls it. A tag push matches
+neither of that workflow's branch filters, so without this a release would either
+run untested or carry a duplicated six-cell matrix that drifts from the original.
+Reusing it also means the `dist` artifact the release uploads is the one CI built
+and `twine check --strict` accepted, in the same run — not a second build of the
+same tree.
+
+**The tag is checked before anything else runs.** `check-tag` rejects a tag whose
+version disagrees with `optbinning/_version.py`, and one with no `## X.Y.Z (date)`
+section in `CHANGELOG.md`. The first matters because setuptools reads the version
+from `_version.py` and ignores the tag entirely: a `v0.23.0` tag on a tree still
+declaring `0.22.0` produces a distribution PyPI rejects as a duplicate of 0.22.0,
+or — worse, once 0.23.0 has been cut — silently republishes the wrong tree under a
+version that looks right in `git tag`. The second matters because the GitHub release
+body is extracted from that section, and an absent section yields an empty release.
+The job runs first so a mistyped tag costs seconds rather than the whole matrix.
+
+**PyPI first, GitHub release second.** A failed upload should not leave a published
+GitHub release advertising a version nobody can install. The reverse ordering is
+recoverable only by deleting the release.
+
+**`gh release create` on the runner is not a contradiction of "there is no `gh`
+CLI".** That rule in `CLAUDE.md` is about this development machine. GitHub-hosted
+runners ship `gh` preinstalled, and using it avoids taking a third-party action as a
+dependency for one API call.
+
+**One-time setup, done outside this repository.** The trusted publisher must be
+registered at
+<https://pypi.org/manage/project/optbinning-slim/settings/publishing/> with exactly
+those four names before the first tag is pushed; until then the `pypi` job fails at
+the upload step with `invalid-publisher`. Nothing in the repository can create it,
+and nothing in the repository detects that it is missing.

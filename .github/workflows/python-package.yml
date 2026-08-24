@@ -8,6 +8,11 @@ on:
     branches: [master, develop]
   pull_request:
     branches: [master, develop]
+  # Called by release.yml on a tag push, which matches neither branch filter
+  # above. The release gates itself on this workflow rather than keeping a
+  # second copy of the matrix, and publishes the `dist` artifact the `package`
+  # job below uploads.
+  workflow_call:
 
 jobs:
   build:

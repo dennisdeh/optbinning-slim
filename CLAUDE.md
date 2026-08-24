@@ -234,9 +234,18 @@ the next upstream merge tractable.
 - **A release is a version bump plus its notes, in one commit.** `optbinning/_version.py`
   is the only place the number lives (`pyproject.toml` reads it), and `CHANGELOG.md`
   gains the section. The README's badges and its testing table quote measured numbers —
-  re-measure them, do not carry them forward. Then tag that commit **`vX.Y.Z`**
-  (annotated, with the summary in the message) and push the tag: `v0.22.0` is the first
-  tag this repository has, so that prefix is the convention.
+  re-measure them, do not carry them forward — except the PyPI badge, which reads the
+  live version from shields.io and must not be turned back into a literal. Then tag that
+  commit **`vX.Y.Z`** (annotated, with the summary in the message) and push the tag:
+  `v0.22.0` is the first tag this repository has, so that prefix is the convention.
+- **Pushing the tag *is* the release.** `.github/workflows/release.yml` fires on `v*`,
+  refuses a tag that disagrees with `optbinning/_version.py` or has no `## X.Y.Z (date)`
+  section in `CHANGELOG.md`, runs the full CI matrix, uploads to PyPI and opens the
+  GitHub release. **Do not `twine upload` by hand.** PyPI refuses a second upload of a
+  filename it already holds, so a manual upload does not race the workflow — it defeats
+  it, and the version cannot be re-uploaded even after deletion. The upload uses trusted
+  publishing (OIDC); there is no PyPI token to find, and the reasoning is in
+  `reports/DECISIONS.md`.
 - **Every document carries its vintage.** Each section carries `*Last updated:
   YYYY-MM-DD*`, refreshed when **its** content changes — not when the file is touched
   for something else. Session files are exempt: they are dated by filename.

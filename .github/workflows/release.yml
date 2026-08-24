@@ -1,0 +1,128 @@
+# Publishes a release to PyPI and opens the matching GitHub release.
+#
+# The tag is the trigger and the single source of the version: pushing an
+# annotated `vX.Y.Z` tag runs the full CI matrix, builds the distributions,
+# uploads them to PyPI and opens the GitHub release from that version's
+# CHANGELOG section. Nothing is uploaded by hand.
+#
+# No PyPI API token exists anywhere in this repository. The upload
+# authenticates through PyPI's trusted publishing (OIDC), which is bound to
+# four names that must match the publisher registered at
+# https://pypi.org/manage/project/optbinning-slim/settings/publishing/ :
+# the owner `dennisdeh`, the repository `optbinning-slim`, this file's name
+# `release.yml`, and the environment `pypi`. Renaming any of them breaks the
+# upload until the publisher is re-registered — see reports/DECISIONS.md.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Granted per job instead, so the one job that can write to the repository and
+# the one that can mint an OIDC token are both explicit.
+permissions: {}
+
+jobs:
+  check-tag:
+    # Runs before the matrix so a mistyped tag costs seconds, not the whole
+    # six-cell run. A tag that disagrees with optbinning/_version.py would
+    # publish files named for one version carrying metadata for another, and
+    # PyPI accepts that silently; a release with no CHANGELOG section would
+    # open a GitHub release with an empty body.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag, __version__ and CHANGELOG must agree
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          declared=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' optbinning/_version.py)
+          echo "tag=${tag}  __version__=${declared}"
+          if [ -z "${declared}" ]; then
+            echo "::error::could not read __version__ from optbinning/_version.py"
+            exit 1
+          fi
+          if [ "${version}" != "${declared}" ]; then
+            echo "::error::tag ${tag} does not match __version__ ${declared} in optbinning/_version.py"
+            exit 1
+          fi
+          if ! grep -q "^## ${version} " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## ${version} (YYYY-MM-DD)' section"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+  ci:
+    # A tag push does not trigger the CI workflow — that one fires on branches
+    # only — so the release calls it explicitly. It also produces the `dist`
+    # artifact the jobs below consume, which is the point: what CI built and
+    # `twine check --strict` passed is byte-for-byte what reaches PyPI.
+    needs: check-tag
+    uses: ./.github/workflows/python-package.yml
+    permissions:
+      contents: read
+
+  pypi:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/optbinning-slim
+    permissions:
+      # Mints the short-lived OIDC token that trusted publishing exchanges for
+      # an upload token, and signs the PEP 740 attestations. No secret.
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    # After PyPI, not before: a failed upload should not leave a published
+    # GitHub release pointing at a version nobody can install.
+    needs: [check-tag, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+
+      - name: Take the release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          awk -v v="${VERSION}" '
+            $0 == "## " v || index($0, "## " v " ") == 1 { p = 1; next }
+            p && /^## / { exit }
+            p { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::extracted an empty CHANGELOG section for ${VERSION}"
+            exit 1
+          fi
+
+      - name: Open the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag
