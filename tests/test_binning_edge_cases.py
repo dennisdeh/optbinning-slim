@@ -683,7 +683,7 @@ def test_time_limit_and_gamma():
     optb.fit(x, y)
     assert optb.status == "OPTIMAL"
 
-    with raises(ValueError, match="time_limit must be a positive value"):
+    with raises(ValueError, match="time_limit must be a finite non-negative"):
         OptimalBinning(time_limit=-1).fit(x, y)
 
     with raises(TypeError, match="verbose must be a boolean"):

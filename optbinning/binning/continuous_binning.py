@@ -176,9 +176,13 @@ def _check_parameters(name, dtype, prebinning_method, max_n_prebins,
             raise ValueError("split_digits must be an integer in [0, 8]; "
                              "got {}.".format(split_digits))
 
-    if not isinstance(time_limit, numbers.Number) or time_limit < 0:
-        raise ValueError("time_limit must be a positive value in seconds; "
-                         "got {}.".format(time_limit))
+    # nan and inf are Numbers and neither is < 0, so the range test is what
+    # rejects them. Written as a comparison rather than math.isfinite so an
+    # arbitrary-precision int cannot raise OverflowError here.
+    if (not isinstance(time_limit, numbers.Number) or
+            not -np.inf < time_limit < np.inf or time_limit < 0):
+        raise ValueError("time_limit must be a finite non-negative value in "
+                         "seconds; got {}.".format(time_limit))
 
     if not isinstance(verbose, bool):
         raise TypeError("verbose must be a boolean; got {}.".format(verbose))

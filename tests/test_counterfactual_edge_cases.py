@@ -843,3 +843,16 @@ def test_multi_cfmip_solution_is_an_object_array_per_counterfactual():
             for i, n in enumerate(nbins):
                 assert solution[k][i].dtype == bool
                 assert list(solution[k][i]) == [True] + [False] * (n - 1)
+
+
+def test_generate_rejects_a_non_finite_time_limit():
+    # nan and inf are numbers.Number and neither is <= 0, so the old guard
+    # let them through to the MIP model. Unlike the binning estimators,
+    # Counterfactual keeps rejecting 0: there is no "no budget" answer a
+    # counterfactual search can return. See reports/DECISIONS.md.
+    cf = _binary()
+
+    for time_limit in (float("nan"), float("inf"), float("-inf"), 0, -1):
+        with raises(ValueError, match="time_limit must be a finite positive"):
+            cf.generate(query=query, y=1, outcome_type="binary", n_cf=1,
+                        time_limit=time_limit)

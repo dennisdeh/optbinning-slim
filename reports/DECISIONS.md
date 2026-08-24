@@ -558,3 +558,62 @@ says: after fixing a defect, grep the tree for the *kernel* — the two or three
 lines of the computation — not for the symbol name. The copies have different
 function names, different variable names and different surrounding code, but the
 kernel is usually byte-identical.
+
+## `time_limit` must be finite; 0 is valid for binning and not for counterfactuals
+
+*Last updated: 2026-08-24*
+
+The eight `_check_parameters` functions guarded `time_limit` with
+`not isinstance(time_limit, numbers.Number) or time_limit < 0`. `nan < 0` and
+`inf < 0` are both False, so both passed validation and reached the solver,
+where what happened depended on the backend. Measured 2026-08-24 on
+`OptimalBinning`:
+
+| `time_limit` | `solver="cp"` | `solver="mip"` |
+|---|---|---|
+| `nan` | `MODEL_INVALID`, no splits | `UNKNOWN`, no splits |
+| `inf` | `OPTIMAL`, 5 splits | `OverflowError: cannot convert float infinity to integer` |
+| `-inf` | rejected (by `< 0`) | rejected (by `< 0`) |
+
+Neither `nan` answer is usable and neither is an error the caller can act on:
+`MODEL_INVALID` is reported as an ordinary status, so a `nan` budget produced a
+silently empty binning. `inf` was worse than useless — it *worked* under `"cp"`
+and crashed under `"mip"`, which is exactly the backend divergence the rest of
+the 2026-08-24 `time_limit` work removed.
+
+**All eight validators now reject a non-finite `time_limit`.** `inf` is rejected
+rather than honoured as "no limit": nothing documents it as meaningful, the
+parameter is documented in seconds, and the default is already a large finite
+number. A caller who wants effectively no limit can pass a large finite one.
+
+The finiteness test is written `not -np.inf < time_limit < np.inf` rather than
+`math.isfinite(time_limit)`. Both reject `nan`, `inf` and `-inf`; the comparison
+form additionally cannot raise `OverflowError` on an arbitrary-precision int,
+where `math.isfinite(10**400)` does. A `10**400` budget still passes validation
+and still fails inside the solver, exactly as before — that is untouched, not
+overlooked.
+
+**`time_limit=0` stays valid for the seven binning estimators and stays invalid
+for `Counterfactual`.** This is a deliberate divergence between the two, not
+drift:
+
+- For a binning estimator 0 is a well-defined "no budget": both backends report
+  `UNKNOWN` and return the single all-in-one-bin fallback, which is a coherent
+  answer and is pinned by
+  `tests/test_binning_solvers.py::test_zero_time_limit_is_accepted_and_means_no_budget`.
+- A counterfactual search has no equivalent fallback to return, so
+  `Counterfactual.generate` keeps `<= 0`, as it always has, and
+  `tests/test_counterfactual.py` pins that rejection.
+
+The shared message was the reason this looked like an inconsistency: all eight
+said "time_limit must be a positive value in seconds" while seven of them
+accepted 0. Each message now states its own rule — "a finite non-negative value"
+for the binning estimators, "a finite positive value" for the counterfactual.
+
+Pinned by `test_non_finite_time_limit_is_rejected_1d`,
+`test_non_finite_time_limit_is_rejected_2d`,
+`test_negative_time_limit_is_still_rejected` and
+`test_zero_time_limit_is_accepted_and_means_no_budget` in
+`tests/test_binning_solvers.py`, and by
+`test_generate_rejects_a_non_finite_time_limit` in
+`tests/test_counterfactual_edge_cases.py`. All were red before the change.

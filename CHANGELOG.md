@@ -170,6 +170,18 @@ exception was raised, the output merely was not what it claimed to be.
 
 **Validation and messages.**
 
+- **`time_limit=float("nan")` and `time_limit=float("inf")` passed validation**
+  at all eight sites that accept the parameter, because neither is `< 0`. A
+  `nan` budget then produced a silently empty binning (`solver="cp"` reported
+  `MODEL_INVALID` as an ordinary status), and `inf` worked under `solver="cp"`
+  while dying under `solver="mip"` with `OverflowError: cannot convert float
+  infinity to integer`. Non-finite values are now rejected with a clear
+  `ValueError`. `time_limit=0` remains valid for the binning estimators, where
+  it means "no budget" and both backends return the single-bin fallback, and
+  remains invalid for `Counterfactual.generate`, which has no such fallback —
+  and each message now states its own rule instead of all eight claiming the
+  value must be "positive" while seven accepted 0.
+
 - `BSketch` accepted an out-of-range `eps` — the guard used `and` where every
   sibling uses `or`.
 - `split_data` silently dropped `fix_ub` whenever `fix_lb` was also given.

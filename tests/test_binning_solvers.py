@@ -23,13 +23,15 @@ import warnings
 import numpy as np
 
 from ortools.linear_solver import pywraplp
-from pytest import approx, raises
+from pytest import approx, mark, raises
 from scipy import stats
 
+from optbinning import ContinuousOptimalBinning
 from optbinning import ContinuousOptimalBinning2D
 from optbinning import MulticlassOptimalBinning
 from optbinning import OptimalBinning
 from optbinning import OptimalBinning2D
+from optbinning import OptimalBinningSketch
 from optbinning.binning.mip import BinningMIP
 from optbinning.binning.model_data import continuous_model_data
 from optbinning.binning.model_data import model_data
@@ -1387,3 +1389,67 @@ def test_unfitted_estimator_raises():
         optb.information()
     with raises(NotFittedError):
         optb.transform(x)
+
+
+# ---------------------------------------------------------------------------
+# time_limit must be finite
+# ---------------------------------------------------------------------------
+
+NON_FINITE = [float("nan"), float("inf")]
+
+
+@mark.parametrize("time_limit", NON_FINITE)
+def test_non_finite_time_limit_is_rejected_1d(time_limit):
+    # nan and inf are numbers.Number and neither is < 0, so the old guard let
+    # them through. What they then did depended on the backend, and neither
+    # answer is one a caller can use: solver="cp" reported MODEL_INVALID with
+    # no splits for nan and treated inf as "no limit", while solver="mip"
+    # reported UNKNOWN for nan and died with
+    # `OverflowError: cannot convert float infinity to integer` for inf.
+    for solver in ("cp", "mip"):
+        with raises(ValueError, match="time_limit must be a finite"):
+            OptimalBinning(solver=solver, time_limit=time_limit).fit(x, y)
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        ContinuousOptimalBinning(time_limit=time_limit).fit(x, y.astype(float))
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        MulticlassOptimalBinning(time_limit=time_limit).fit(x, y)
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        OptimalBinningSketch(time_limit=time_limit)
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        SBOptimalBinning(time_limit=time_limit).fit([x, x], [y, y])
+
+
+@mark.parametrize("time_limit", NON_FINITE)
+def test_non_finite_time_limit_is_rejected_2d(time_limit):
+    x2, z2, y2, e2 = build_2d()
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        OptimalBinning2D(time_limit=time_limit, **PREBINS_2D).fit(x2, z2, y2)
+
+    with raises(ValueError, match="time_limit must be a finite"):
+        ContinuousOptimalBinning2D(time_limit=time_limit,
+                                   **PREBINS_2D).fit(x2, z2, e2)
+
+
+def test_negative_time_limit_is_still_rejected():
+    # -inf was already rejected, by `time_limit < 0` rather than by the
+    # finiteness test; keep both routes covered.
+    for time_limit in (-1, -0.5, float("-inf")):
+        with raises(ValueError, match="time_limit must be a finite"):
+            OptimalBinning(time_limit=time_limit).fit(x, y)
+
+
+def test_zero_time_limit_is_accepted_and_means_no_budget():
+    # 0 is deliberately valid for the binning estimators: it is a well-defined
+    # "no budget" that both backends report as UNKNOWN with no splits. The
+    # message no longer claims the value must be "positive". See
+    # reports/DECISIONS.md.
+    for solver in ("cp", "mip"):
+        optb = OptimalBinning(solver=solver, time_limit=0)
+        optb.fit(x, y)
+        assert optb.status == "UNKNOWN"
+        assert len(optb.splits) == 0

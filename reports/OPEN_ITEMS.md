@@ -3,36 +3,6 @@
 Things the code does that it should not. One entry per defect; remove the entry
 in the commit that fixes it.
 
-## `time_limit` accepts nan and inf, against its own error message
-
-*Last updated: 2026-08-24*
-
-All eight `_check_parameters` functions guard with
-
-```python
-if not isinstance(time_limit, numbers.Number) or time_limit < 0:
-    raise ValueError("time_limit must be a positive value in seconds; ...")
-```
-
-`nan < 0` and `inf < 0` are both False, so both pass. Verified 2026-08-24:
-`OptimalBinning(time_limit=float("nan")).fit(x, y)` and the `inf` form both
-complete. The message also says "positive", while the guard admits 0 — and
-`scorecard/counterfactual/counterfactual.py` uses `<= 0` with the byte-identical
-message, so the library disagrees with itself about the same parameter name.
-
-Sites: `binning/binning.py`, `binning/continuous_binning.py`,
-`binning/multiclass_binning.py`, `binning/distributed/binning_sketch.py`,
-`binning/uncertainty/binning_scenarios.py`,
-`binning/multidimensional/binning_2d.py`,
-`binning/multidimensional/continuous_binning_2d.py` and
-`scorecard/counterfactual/counterfactual.py`.
-
-Not fixed here because deciding what `time_limit=0` should mean is a behaviour
-choice, not a slip: the 2026-08-24 work made `time_limit=0` a well-defined
-"no budget" across both solver backends, and tightening the validator to `<= 0`
-would turn that into a `ValueError` and make five currently-green tests red.
-Pick one of the two readings deliberately, then make all eight agree.
-
 ## `time_limit` is documented as `int`, but floats are honoured
 
 *Last updated: 2026-08-24*
@@ -41,8 +11,16 @@ Every `time_limit` entry reads `time_limit : int (default=...)`. This has been
 inaccurate since before the fork: `_check_parameters` validates
 `numbers.Number`, and `solver="cp"` has always honoured a fractional value. As
 of 2026-08-24 `solver="mip"` honours one too, rounding to the nearest
-millisecond, so `int or float` is now the only accurate type. Same eight files
-as the entry above. Left with that entry so both are decided together.
+millisecond, so `int or float` is now the only accurate type.
+
+Sites: `binning/binning.py`, `binning/continuous_binning.py`,
+`binning/multiclass_binning.py`, `binning/distributed/binning_sketch.py`,
+`binning/uncertainty/binning_scenarios.py`,
+`binning/multidimensional/binning_2d.py`,
+`binning/multidimensional/continuous_binning_2d.py` and
+`scorecard/counterfactual/counterfactual.py`. The validators at those eight
+sites were corrected on 2026-08-24 (see `DECISIONS.md`); only the documented
+type is still wrong.
 
 ## `OptimalPWBinning.fit` fits the caller's estimator in place
 
