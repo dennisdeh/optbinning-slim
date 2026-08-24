@@ -56,6 +56,129 @@ while fixing the others.
   initialise, which killed `test_multiclass_binning.py::test_numerical_default`
   there. Nothing in the library changed; this affects the suite only.
 
+### Fixed — the 2026-08-24 coverage pass
+
+A test-coverage pass took statement coverage from 89% to 99% and the suite from
+216 to over a thousand tests. Everything below is a defect those tests exposed;
+each fix ships a regression test that was seen failing against the unfixed code.
+Most of them existed in three or four of the near-parallel estimators at once.
+
+**Wrong numbers, returned silently.** These are the ones worth reading first: no
+exception was raised, the output merely was not what it claimed to be.
+
+- **`BinningProcess` leaked a per-variable transform option onto every later
+  variable.** A `binning_transform_params={"v0": {"metric": "indices"}}` made the
+  override the default for every variable after `v0` in `variable_names` order,
+  and on the disk path for every later chunk. Configuring one variable silently
+  changed the output of the rest.
+- **`OptimalPWBinning.transform` returned the *non-event* rate** for special and
+  missing buckets with `metric_special`/`metric_missing="empirical"`, because
+  `transform_binary_target`'s signature took its four counts in the opposite
+  order to all three of its callers. With `metric="woe"` the WoE for those
+  buckets had the wrong sign.
+- **A bin holding only events reported an event rate of 0.0.** The event rate was
+  gated on a bin having *both* classes, which is the condition WoE needs, not the
+  condition an event rate needs. Any pure bin was affected — a special-code
+  bucket that happens to be all-event, a tail bin — not only degenerate targets.
+  Fixed in all four binning tables and all four transforms, and
+  `binning_table.build()` and `transform(metric="event_rate")` are now pinned to
+  agree.
+- **`analysis()` counted special buckets as ordinary bins.** With dict-form
+  `special_codes`, all but one named bucket entered the significance tests, the
+  monotonic-trend report and Cramer's V, so a strictly ascending binning could be
+  reported as `"peak"`. The categorical `"others"` bin had the same problem.
+- **`gamma` had no effect on `ContinuousOptimalBinning`.** The dominating-bin
+  penalty was subtracted from the CP objective without the constraints that give
+  it meaning, so it changed the reported objective and never the bins.
+- **`split_digits` was ignored** by both 2D estimators and by the sketch
+  estimators, though validated and documented by all four.
+- **`monotonic_trend` values `"convex"`, `"concave"`, `"peak_heuristic"` and
+  `"valley_heuristic"` were silently dropped** by the multiclass model, which
+  compared the whole trend *list* against a string. They passed validation and
+  returned the unconstrained binning as `"OPTIMAL"`.
+- **`BCatSketch.merge` never checked that the two sketches were compatible** (it
+  has a `_mergeable` method that nothing called) and **aliased the other
+  sketch's count lists**, so a distributed workflow that merged a worker into an
+  aggregator and kept using the worker got wrong counts on the worker.
+
+**Crashes on ordinary or degenerate input.**
+
+- A **single-class binary target** was accepted by `fit()` as `"OPTIMAL"` and
+  then made `binning_table.build()` — and `BinningProcess.fit`, which calls it —
+  raise sklearn's `Found array with 0 sample(s)`. Such a table now builds, with
+  IV, JS, Hellinger, Triangular, KS and Gini all 0 (Gini was `nan`).
+- **`user_splits=[]` could not complete a fit** in any of the four estimators
+  that accept it, each failing differently. It now means "no split points".
+- **`MulticlassOptimalBinning` could not use `min_bin_size`/`max_bin_size` at
+  all** — every combination died inside OR-Tools with `NotImplementedError`.
+  `BinningProcess` on a multiclass target inherited that.
+- **`special_codes` as a numpy array of more than one code** was accepted by
+  `fit()` and then raised `The truth value of an array with more than one element
+  is ambiguous` from `transform()`.
+- **`OptimalPWBinning.fit` raised `TypeError`** whenever the missing-value bucket
+  held both events and non-events — an entirely ordinary input.
+- **`ContinuousOptimalPWBinning.fit_transform` dropped `lb`/`ub`** and passed
+  `check_input` positionally into `lb`.
+- **A fractional `time_limit` crashed `solver="mip"`** with a SWIG `TypeError`
+  while `solver="cp"` honoured it, in the 1D, 2D and counterfactual models; and
+  `time_limit=0` meant "no time" to one backend and "no limit" to the other.
+- **`Counterfactual.generate` raised `IndexError`** whenever every feature of the
+  scorecard happened to yield the same number of candidate bins.
+- **`SBOptimalBinning` raised `IndexError`** whenever pre-binning left no splits,
+  and passed the wrong `user_splits_fixed` array to the solver.
+- **`OptimalBinningSketch.solve()` raised `IndexError`** on a single-class or
+  single-row stream, and `information()` raised `AttributeError` when the solver
+  had not run.
+- **`strategy="cart"` could not fit inputs `strategy="grid"` fits**, raising
+  sklearn's `InvalidParameterError` when pre-binning left an axis unsplit.
+- **`strategy="cart"` returned a coarser binning than it should**, and on small
+  prebinning grids a single whole-grid bin with IV 0. The CART leaf budget was
+  `n_splits_x * n_splits_y`, but a cart bin merges two or more of the tree's
+  leaves, so *b* bins need 2*b* leaves and any budget below four could only
+  return the union of all of them. The budget is now the prebinning grid's cell
+  count. **This changes cart results at the default `max_n_prebins`**: measured
+  2026-08-24, a synthetic 300-row logistic target went from 7 bins / IV 2.5925
+  to 9 / 2.7376, and breast-cancer (mean texture, mean area) from 7 / 5.4471 to
+  8 / 5.5412. Inputs whose grid is large enough that `min_prebin_size` binds
+  first are unchanged, and cart remains far cheaper than grid (0.34 s vs 11.84 s
+  at `max_n_prebins` 20x20).
+
+**Estimator contract.**
+
+- **`fit()` no longer mutates its constructor parameters.** All four estimators
+  that accept `user_splits_fixed` rewrote it to a numpy `bool_` array, so
+  refitting the same instance raised `ValueError: user_splits_fixed must be list
+  of boolean` and `sklearn.base.clone` round-trips were unsound.
+- **`BinningProcess.update_binned_variable`'s binary guard** accepted
+  `ContinuousOptimalBinning`, `MulticlassOptimalBinning` and the 2D estimators,
+  because they subclass `OptimalBinning`; `transform()` then returned that
+  binning's own metric instead of WoE.
+- **`BinningProcess.fit` did not validate `fixed_variables` names**, unlike
+  `fit_disk`. A bogus name was silently ignored.
+- **`BinningProcessSketch` ignored `selection_criteria`**, dying with
+  `AttributeError` for any non-`None` value, and rejected the `"indices"` and
+  `"bins"` metrics its own docstring and body support.
+- **Mixing `"indices"` with another transform metric** silently truncated floats
+  to integers; it now raises.
+- Unfitted `RangeDetector` / `ModifiedZScoreDetector` / `YQuantileDetector` raise
+  `NotFittedError` from `get_support()` rather than `AttributeError`, and a 2D
+  binning table raises `NotFittedError` rather than `AttributeError` when
+  `analysis()` is called before `build()`.
+- **`Scorecard(scaling_method="min_max", rounding=True)`** now lands on the
+  requested range instead of merely inside it, and a degenerate scorecard raises
+  instead of returning an all-`NaN` one from a successful `fit()`.
+
+**Validation and messages.**
+
+- `BSketch` accepted an out-of-range `eps` — the guard used `and` where every
+  sibling uses `or`.
+- `split_data` silently dropped `fix_ub` whenever `fix_lb` was also given.
+- A stray `print` wrote numpy dtypes to stdout on every categorical
+  `ContinuousOptimalBinning` fit that produced an `"others"` group.
+- `jensen_shannon_multivariate` rejected the array-like it documents.
+- Error messages that named values the code rejects, and docstrings that
+  advertised `outlier_detector="zcore"` where only `"zscore"` is accepted.
+
 ### Continuous integration
 
 - **`fail-fast: false`** on the test matrix. Cancelling the other five jobs on

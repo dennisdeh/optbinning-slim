@@ -79,12 +79,18 @@ def _transform_base_metric(metric, names, binning_transform_params):
     "indices" integers and every other metric floats, and numpy coerces the
     odd one out rather than complaining.
 
-    Only two of those coercions lose the value, and only those are rejected.
-    Strings do not survive a float array at all, and a float written into the
-    integer array an "indices" base metric allocates is truncated -- WoE
-    -2.407 is stored as -2. A per-variable "indices" under a numeric or
-    default base metric is lossless and stays allowed: that array is float64
-    and a bin index is a small integer, which it holds exactly.
+    Three combinations are rejected, for two different reasons. Two of them
+    lose the value: strings do not survive a float or an integer array at
+    all, and a float written into the integer array an "indices" base metric
+    allocates is truncated -- WoE -2.407 is stored as -2. The third, a
+    numeric override under a "bins" base metric, would in fact be lossless --
+    that array is ``dtype=object`` and holds -2.407 unchanged -- and is
+    rejected because upstream rejects the "bins" mix in both directions.
+    Narrowing that guard would be a behaviour change, not a repair.
+
+    A per-variable "indices" under a numeric or default base metric is
+    lossless and stays allowed: that array is float64 and a bin index is a
+    small integer, which it holds exactly.
 
     Returns the metric the output array must be built from: the single metric
     every variable agrees on, or ``metric`` when they differ.
@@ -263,7 +269,7 @@ def _check_parameters(variable_names, max_n_prebins, min_prebin_size,
         raise TypeError("variable_names must be a list or numpy.ndarray.")
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if not 0. < min_prebin_size <= 0.5:
@@ -337,7 +343,7 @@ def _check_parameters(variable_names, max_n_prebins, min_prebin_size,
 
     if special_codes is not None:
         if not isinstance(special_codes, (np.ndarray, list, dict)):
-            raise TypeError("special_codes must be a dit, list or "
+            raise TypeError("special_codes must be a dict, list or "
                             "numpy.ndarray.")
 
         if isinstance(special_codes, dict) and not len(special_codes):
@@ -780,6 +786,9 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             "bins". For continuous target options are: "mean" (default),
             "indices" and "bins". For multiclass target options are:
             "mean_woe" (default), "weighted_mean_woe", "indices" and "bins".
+            A per-variable ``metric`` in ``binning_transform_params``
+            overrides this one; see that parameter for which combinations the
+            single-dtype output array admits, and which raise ``ValueError``.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.
@@ -836,6 +845,9 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             "bins". For continuous target options are: "mean" (default),
             "indices" and "bins". For multiclass target options are:
             "mean_woe" (default), "weighted_mean_woe", "indices" and "bins".
+            A per-variable ``metric`` in ``binning_transform_params``
+            overrides this one; see that parameter for which combinations the
+            single-dtype output array admits, and which raise ``ValueError``.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.
@@ -882,6 +894,9 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             "bins". For continuous target options are: "mean" (default),
             "indices" and "bins". For multiclass target options are:
             "mean_woe" (default), "weighted_mean_woe", "indices" and "bins".
+            A per-variable ``metric`` in ``binning_transform_params``
+            overrides this one; see that parameter for which combinations the
+            single-dtype output array admits, and which raise ``ValueError``.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.
@@ -937,6 +952,9 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             "bins". For continuous target options are: "mean" (default),
             "indices" and "bins". For multiclass target options are:
             "mean_woe" (default), "weighted_mean_woe", "indices" and "bins".
+            A per-variable ``metric`` in ``binning_transform_params``
+            overrides this one; see that parameter for which combinations the
+            single-dtype output array admits, and which raise ``ValueError``.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.

@@ -1053,7 +1053,7 @@ def test_continuous_yquantile_outlier_detector():
 # Defects: kept red on purpose. See the accompanying report.
 # ---------------------------------------------------------------------------
 
-def test_defect_user_splits_empty_list():
+def test_empty_user_splits_fits_a_single_bin():
     """``user_splits=[]`` means "no split points", not an error.
 
     ``_check_parameters`` accepts an empty list and ``_fit`` has a dedicated
@@ -1061,8 +1061,10 @@ def test_defect_user_splits_empty_list():
     ``_prebinning_refinement``, leaving ``_n_nonevent_special`` and friends
     ``None`` so ``bin_info`` raised ``TypeError``; it now delegates to
     ``_prebinning_refinement``, which early-returns the empty split arrays and
-    computes the special and missing counts on the way. The result is the same
-    single bin ``user_splits=None`` gives on the same data.
+    computes the special and missing counts on the way. This pins the fixed
+    behaviour -- the same single bin ``user_splits=None`` gives on the same
+    data. The categorical sibling is
+    ``test_empty_user_splits_categorical_fits_a_single_bin``.
     """
     optb_none = OptimalBinning(user_splits=None, max_n_prebins=6)
     optb_none.fit(x, y)
@@ -1637,3 +1639,62 @@ def test_json_round_trip_special_codes_ndarray(tmp_path):
 
         assert optb_json.transform(xs) == approx(optb.transform(xs),
                                                  rel=1e-12)
+
+
+def test_zero_record_prebin_never_reaches_the_optimizer():
+    """A prebin holding no record is not something the model can express.
+
+    ``model_data`` computes ``s_event / (s_nonevent + s_event)`` per prebin
+    and, for the CP model, casts the scaled result with
+    ``astype(np.int64)``. An empty prebin makes that 0/0, so the optimizer is
+    handed nan: ``MODEL_INVALID`` under "hellinger" and a ``TypeError`` out
+    of OR-Tools under "triangular". ``_compute_prebins`` removed such prebins
+    only on the "iv"/"js" branch -- the other two raise
+    ``_flag_min_n_event_nonevent`` and keep every prebin, empty ones
+    included. Rounding to ``split_digits`` collapses adjacent quantiles onto
+    one value, which is one way to produce them.
+    """
+    rng = np.random.RandomState(0)
+    xn = rng.normal(size=2000)
+    yn = (rng.uniform(size=2000) < 1. / (1. + np.exp(-xn))).astype(int)
+
+    for divergence in ("iv", "js", "hellinger", "triangular"):
+        optb = OptimalBinning(name="v", divergence=divergence,
+                              max_n_prebins=20, split_digits=0)
+        optb.fit(xn, yn)
+
+        assert optb.status == "OPTIMAL"
+        assert len(optb.splits) > 1
+        assert optb.splits.tolist() == np.round(optb.splits, 0).tolist()
+        assert len(optb.splits) == len(np.unique(optb.splits))
+
+        df = optb.binning_table.build()
+
+        # Every clean bin holds records; Special, Missing and Totals follow.
+        assert (df["Count"].values[:-3] > 0).all()
+
+
+def test_categorical_user_splits_are_reported_as_given():
+    """``fit`` reports the caller's ``user_splits``, not its working copy.
+
+    Pre-binning sorts the categorical groups into solver order and prunes
+    them, so it works on a private copy. The binning table only ever tests
+    whether ``user_splits`` was supplied -- ``bin_categorical`` reads nothing
+    else from it -- so it gets the caller's list, which is what ``to_dict``
+    writes out.
+    """
+    rng = np.random.RandomState(0)
+    cats = rng.choice(list("ABCDE"), size=500)
+    rate = {"A": .1, "B": .2, "C": .5, "D": .7, "E": .8}
+    yc = np.array([rng.uniform() < rate[c] for c in cats]).astype(int)
+
+    user_splits = [["A", "B"], ["C"], ["D", "E"]]
+    optb = OptimalBinning(name="v", dtype="categorical",
+                          user_splits=user_splits)
+    optb.fit(cats, yc)
+
+    assert optb.status == "OPTIMAL"
+    assert optb.binning_table.user_splits == user_splits
+    assert optb.to_dict()["user_splits"] == user_splits
+    # the constructor parameter itself is untouched, so a refit works
+    assert optb.get_params()["user_splits"] == user_splits

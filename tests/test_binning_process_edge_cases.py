@@ -1268,7 +1268,13 @@ def test_sketch_transform_indices_override_under_a_numeric_base_metric():
 
 
 def test_defect_transform_disk_metric_indices_mixed_is_silently_truncated():
-    """``_transform_disk`` carries the same reconciliation, and the same gap.
+    """``_transform_disk`` carried the same gap, and the same reconciliation.
+
+    It allocates its chunk array from the same reconciled base metric, so
+    the truncation described in
+    ``test_defect_transform_metric_indices_mixed_is_silently_truncated``
+    reached the written csv too. The lossless direction is pinned by
+    ``test_transform_disk_indices_override_under_a_numeric_base_metric``.
     """
     path = _disk_input()
     output = _fresh_output("binning_process_edge_mixed_indices.csv")
@@ -1282,16 +1288,19 @@ def test_defect_transform_disk_metric_indices_mixed_is_silently_truncated():
 
 
 def test_defect_sketch_transform_ignores_per_variable_metric_dtype():
-    """``BinningProcessSketch.transform`` picks its output dtype from the
+    """``BinningProcessSketch.transform`` picked its output dtype from the
     top-level ``metric`` alone.
 
-    Each variable is then transformed with ``params.get("metric", metric)``,
-    so a per-variable override of a different dtype is written into the
-    wrong array: "bins" strings into a float array raise numpy's opaque
+    Each variable is transformed with ``params.get("metric", metric)``, so a
+    per-variable override of a different dtype used to be written into the
+    wrong array: "bins" strings into a float array raised numpy's opaque
     ``could not convert string to float``, and a numeric override under an
-    "indices" base metric is silently truncated to zero. Round 1 widened the
-    metric guard to accept "indices" and "bins" without porting the
-    ``base_metric`` reconciliation ``BinningProcess._transform`` already had.
+    "indices" base metric was silently truncated to zero. Round 1 widened
+    the metric guard to accept "indices" and "bins" without porting the
+    ``base_metric`` reconciliation ``BinningProcess._transform`` already had;
+    the sketch now shares that helper and raises instead. The lossless
+    direction is pinned by
+    ``test_sketch_transform_indices_override_under_a_numeric_base_metric``.
     """
     frame = _sketch_frame()[["v0", "v1"]]
 
@@ -1463,3 +1472,18 @@ def test_defect_sketch_transform_params_override_leaks_to_later_variables():
     # Only v0 asked for 0.25; v1 keeps the call's metric_special of 0.
     assert transformed["v0"].values[:20] == approx(0.25)
     assert transformed["v1"].values[:20] == approx(0.0)
+
+
+def test_sketch_per_variable_metric_none_falls_back_to_the_default():
+    # A per-variable {"metric": None} drops the key entirely so the estimator
+    # applies its own default. The top-level `metric` guard rejects None, so
+    # the per-variable override is the only route into that branch.
+    sketch = BinningProcessSketch(
+        variable_names, binning_transform_params={"v0": {"metric": None}})
+    sketch.add(X_df, y_binary)
+    sketch.solve()
+
+    out = sketch.transform(X_df, metric="woe")
+    default = sketch.get_binned_variable("v0").transform(X_df["v0"].values)
+
+    assert np.allclose(out["v0"].values, default)

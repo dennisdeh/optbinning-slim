@@ -468,3 +468,93 @@ It runs in a subprocess, because import order only means anything in a fresh
 interpreter, and it solves a small CP-SAT model rather than merely importing —
 an import alone would not prove the solver still works. The probe above makes
 both tests in that file fail, so the check has teeth.
+
+## The degenerate-input contract
+
+*Last updated: 2026-08-24*
+
+Before 2026-08-24 the estimators disagreed with each other about what a
+degenerate input means, and each crashed somewhere different. A single-class
+binary target made `binning_table.build()` raise sklearn's `Found array with 0
+sample(s)` out of `jeffrey`, *after* `fit()` had already reported `"OPTIMAL"`;
+`user_splits=[]` raised `TypeError` in the binary estimator, `UnboundLocalError`
+in the continuous one, and `ValueError` from `check_array` in the multiclass and
+scenario ones; the 2D estimators raised where the 1D ones fitted.
+
+The contract now implemented everywhere, and the reasoning for each clause:
+
+1. **A binary target carrying a single class is legal, not an error.** It is the
+   natural result of filtering, of a rare event, or of a small fold in a
+   cross-validation loop. `fit()` returns `"OPTIMAL"` with no splits.
+2. **Event rate is gated on records; WoE, IV and JS are gated on mixedness.**
+   These are different questions. An all-event bin *has* an event rate — 1.0 —
+   and reporting 0.0 for it (which the mixedness gate did) is simply a wrong
+   number. WoE genuinely is undefined without both classes, so that gate stays.
+   This distinction is the single most repeated defect in the package: the same
+   kernel is copy-pasted into the four binning tables and the four transforms,
+   and on 2026-08-24 fixing only the tables made `build()` and `transform()`
+   disagree for the same bin. **Both halves must move together.**
+3. **Gini is 0, not nan,** for a single-class table. `metrics.gini` already
+   returned 0 from its `n <= 1` branch for the same degeneracy; the multi-bin
+   path divided by `te * tne == 0`. The function was internally inconsistent.
+4. **No `RuntimeWarning` may escape** `build()`, `plot()`, `analysis()` or
+   `transform()`. Guard the divides; do not silence them with `np.errstate`,
+   which would hide the next one.
+5. **1D is the reference implementation.** Where 2D and 1D disagreed, 2D was
+   changed. There is no reason for the same degenerate input to be legal in one
+   and an error in the other.
+6. **`user_splits=[]` means "no split points", not an error** — a single bin.
+   Nothing documents an empty list as unsupported, `_check_parameters` accepts
+   it, and `_prebinning_refinement` in every estimator already early-returns the
+   right empty arrays for it.
+
+Pinned across `tests/test_binning_edge_cases.py`,
+`tests/test_binning_statistics.py`, `tests/test_transformations.py`,
+`tests/test_binning_2d_edge_cases.py`,
+`tests/test_binning_piecewise_edge_cases.py` and the sibling edge-case modules.
+
+## `fit()` must not mutate its constructor parameters
+
+*Last updated: 2026-08-24*
+
+Four estimators rewrote `self.user_splits_fixed` into a numpy `bool_` array
+during `fit`, and pruned `self.user_splits` in place. Two consequences, both
+measured 2026-08-24:
+
+- **Refitting the same instance raised.** `_check_parameters` tests
+  `isinstance(s, bool)`, which `np.bool_` fails, so the second `fit()` died with
+  `ValueError: user_splits_fixed must be list of boolean` — on all four of
+  `OptimalBinning`, `ContinuousOptimalBinning`, `MulticlassOptimalBinning` and
+  `SBOptimalBinning`.
+- **`sklearn.base.clone` and `get_params` round-trips were unsound**, and a
+  refit after pre-binning had pruned a split silently used fewer splits than the
+  caller asked for.
+
+Each estimator now keeps its working copy in a private `_user_splits` /
+`_user_splits_fixed` and leaves the public parameter as the caller passed it —
+the sklearn contract, and the same class of defect as the `MDLP.fit` reset
+recorded above.
+
+The recurring shape is worth stating once: **a constructor parameter is input,
+not scratch space.** When `fit` needs a normalised, sorted or pruned version, it
+belongs in a private attribute.
+
+## Sibling parity is the dominant failure mode in this package
+
+*Last updated: 2026-08-24*
+
+Of the defects found on 2026-08-24, very few were isolated. The binary,
+continuous, multiclass, 2D, piecewise and sketch estimators are near-parallel
+implementations, and the same defect was typically present in three or four of
+them — because the code was copied and then only one copy was maintained.
+Upstream's own history shows the mechanism: commit `c3ca5e7` (2021) converted
+three `analysis()` methods to `n_bins - 1 - self._n_specials` and left the two
+piecewise ones at `n_bins - 2`; commit `5efbfc0` (2022) then taught both
+piecewise `build()` and `plot()` about `_n_specials` and again skipped
+`analysis()`.
+
+Practical consequence for anyone working here, beyond what `CLAUDE.md` already
+says: after fixing a defect, grep the tree for the *kernel* — the two or three
+lines of the computation — not for the symbol name. The copies have different
+function names, different variable names and different surrounding code, but the
+kernel is usually byte-identical.

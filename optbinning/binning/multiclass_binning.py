@@ -53,7 +53,7 @@ def _check_parameters(name, prebinning_method, solver, max_n_prebins,
                          'values are "cp" and "mip".')
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if not 0. < min_prebin_size <= 0.5:
@@ -160,7 +160,7 @@ def _check_parameters(name, prebinning_method, solver, max_n_prebins,
 
     if special_codes is not None:
         if not isinstance(special_codes, (np.ndarray, list, dict)):
-            raise TypeError("special_codes must be a dit, list or "
+            raise TypeError("special_codes must be a dict, list or "
                             "numpy.ndarray.")
 
         if isinstance(special_codes, dict) and not len(special_codes):
@@ -170,7 +170,7 @@ def _check_parameters(name, prebinning_method, solver, max_n_prebins,
     if split_digits is not None:
         if (not isinstance(split_digits, numbers.Integral) or
                 not 0 <= split_digits <= 8):
-            raise ValueError("split_digist must be an integer in [0, 8]; "
+            raise ValueError("split_digits must be an integer in [0, 8]; "
                              "got {}.".format(split_digits))
 
     if mip_solver not in ("bop", "cbc"):
@@ -262,7 +262,7 @@ class MulticlassOptimalBinning(OptimalBinning):
 
     outlier_detector : str or None, optional (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method or "zcore" to use the modified
+        the interquartile range based method or "zscore" to use the modified
         Z-score method.
 
     outlier_params : dict or None, optional (default=None)

@@ -109,7 +109,7 @@ class ContinuousOptimalPWBinning(BasePWBinning):
 
     outlier_detector : str or None, optional (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method, "zcore" to use the modified
+        the interquartile range based method, "zscore" to use the modified
         Z-score method or "yquantile" to use the y-axis detector over
         quantiles.
 

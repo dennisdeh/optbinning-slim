@@ -11,11 +11,14 @@ unreachable code is left, then clean that up and confirm a green baseline.
 
 | | before | after |
 |---|---|---|
-| tests | 216 | (see below) |
-| statements | 11,309 | 11,456 |
-| uncovered statements | 1,245 | (see below) |
-| statement coverage | 89% | (see below) |
-| defects fixed | — | (see below) |
+| tests | 216 | 1095 |
+| test modules | 20 | 35 |
+| statements | 11,309 | 11,564 |
+| uncovered statements | 1,245 | **13** |
+| statement coverage | 89% | **99%** |
+| flake8 (CI gate) | 0 | 0 |
+| flake8 (wider, advisory) | 41 | 28 |
+| wall clock | 181 s | 241 s |
 
 All runs on Python 3.13.15, `coverage run --source optbinning -m pytest`, from the repo
 root. `flake8 --select=E9,F63,F7,F82 --exclude=.venv` reports 0 throughout.
@@ -75,7 +78,44 @@ estimators must match.
 
 ## Coverage, and what is left
 
-(filled in at the end of the session)
+**All 13 remaining uncovered statements are unreachable**, which is the
+terminating condition this work was given. They are, in full:
+
+| Statements | Where | Why |
+|---|---|---|
+| 6 | solver-status branches in `mip_2d.py`, `rounding.py`, `counterfactual/mip.py`, `counterfactual/multi_mip.py` | `FEASIBLE` / `ABNORMAL` / `UNBOUNDED` cannot be provoked: these models are bounded and feasible, and CBC answered `OPTIMAL` or `INFEASIBLE` to every probe (NaN and infinite coefficients, 1e18 magnitudes, zero time limits). |
+| 4 | `pympler` / `tdigest` import guards | Need an environment without the `distributed` extra. The `ImportError` each guard leads to **is** covered, by monkeypatching the availability flag. |
+| 1 | `model_data_cart_2d.py::continuous_model_data_cart`'s `if sfr == 0: continue` | Every sklearn leaf holds at least one sample, so a union of leaf regions is never empty. |
+| 2 | the two remaining `ABNORMAL` arms | as above |
+
+None was deleted. They are defensive code and optional-dependency handling, not
+clutter, and `IMPROVEMENT_SUGGESTIONS.md` records the probing so the next
+coverage pass does not propose deleting them.
+
+**What *was* deleted**, having been shown to have no effect: a bare `min_t`
+expression statement in `continuous_bin_info`, two `chi2` bindings that were
+never read, and an `if w is not None:` guard placed *after* `len(w)` — where a
+`None` would already have raised.
+
+**Proposed but not removed**, per this fork's rule against stripping API:
+`BCatSketch._copy`, `binning/metrics.py::test_proportions`,
+`model_data(return_nonevent_event=True)` and `continuous_model_data(scale=None)`
+are all unreachable through the package's own call graph. They are listed in
+`IMPROVEMENT_SUGGESTIONS.md` for a maintainer decision.
+
+## Cost
+
+Four rounds, 109 agent invocations, ~11.5M subagent tokens, ~3,900 tool calls.
+The full suite was run to completion seven times.
+
+## What is still open
+
+Four defects are filed in `OPEN_ITEMS.md` rather than fixed, each because the
+right answer is a judgement rather than a slip: `time_limit` accepting nan and
+inf (tightening it would change what `time_limit=0` means, which this session
+had just defined); the `time_limit : int` docstrings; `OptimalPWBinning.fit`
+fitting the caller's estimator in place; and a dict `metric_special` that passes
+validation and then raises.
 
 ## Filing
 

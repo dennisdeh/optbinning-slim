@@ -10,6 +10,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 
 from ...information import mark_no_solution
+from ...information import mark_solve_skipped
 from .utils import logistic_pw
 
 
@@ -205,8 +206,10 @@ class CFMIP:
             status = self.solver_.Solve()
         else:
             # generate() rejects a zero budget; a directly built CFMIP can
-            # still carry one, and leaves the model built but unsolved.
+            # still carry one, and leaves the model built but unsolved --
+            # with no readable best bound, unlike the statuses below.
             status = pywraplp.Solver.NOT_SOLVED
+            mark_solve_skipped(self.solver_)
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:

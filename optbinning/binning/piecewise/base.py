@@ -173,7 +173,7 @@ def _check_parameters(name, estimator, objective, degree, continuous,
     if split_digits is not None:
         if (not isinstance(split_digits, numbers.Integral) or
                 not 0 <= split_digits <= 8):
-            raise ValueError("split_digist must be an integer in [0, 8]; "
+            raise ValueError("split_digits must be an integer in [0, 8]; "
                              "got {}.".format(split_digits))
 
     if solver not in ("auto", "clarabel", "ecos", "osqp", "direct", "scs",

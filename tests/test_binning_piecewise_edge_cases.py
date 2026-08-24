@@ -21,6 +21,7 @@ from optbinning import OptimalBinning
 from optbinning import OptimalPWBinning
 from optbinning.binning.piecewise.base import _check_parameters
 from optbinning.binning.piecewise.binning_information import retrieve_status
+from optbinning.binning.piecewise.binning_statistics import PWBinningTable
 from optbinning.binning.piecewise.metrics import divergences_asymptotic
 from sklearn.exceptions import NotFittedError
 
@@ -982,3 +983,114 @@ def test_defect_fit_does_not_replace_the_estimator_parameter():
 
     assert optb.get_params()["estimator"] is None
     assert optb.estimator is None
+
+
+def test_defect_plot_woe_curve_stays_finite_at_the_bounds(monkeypatch):
+    # The plotted WoE curve is the fitted probability run through
+    # log((1 - p) / p) + constant, so a p of exactly 0 or 1 makes it
+    # infinite. plot() clipped the probability to [0, 1], which permits
+    # both: the divide escaped as a RuntimeWarning and matplotlib silently
+    # dropped every infinite point, so part of the drawn curve was missing.
+    # piecewise/metrics.py::binary_metrics already bounds the same quantity
+    # away from 0 and 1 by 1e-8 before scoring it.
+    monkeypatch.setattr(plt, "show", lambda *args, **kwargs: None)
+
+    optb = OptimalPWBinning(name="v", max_n_prebins=6).fit(x, y)
+    optb.binning_table.build()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        optb.binning_table.plot(metric="woe", n_samples=10000)
+
+    curve = plt.gcf().axes[1].lines[-1].get_ydata()
+    plt.close("all")
+
+    assert len(curve) == 10000
+    assert np.isfinite(curve).all()
+
+
+def test_woe_transform_is_finite_on_an_unbounded_fit():
+    # The piecewise fit is a regression, so its predicted event rate is not
+    # confined to [0, 1] unless lb/ub are passed, and log(1 / p - 1) is not
+    # finite outside it. Before the bound, this ordinary step function gave
+    # 98 NaN of 300 plus `invalid value encountered in log`, and the NaN
+    # travelled through BinningProcess.transform and transform_disk.
+    x_step = np.linspace(0, 10, 300)
+    y_step = (x_step > 5).astype(int)
+
+    optb = OptimalPWBinning(max_n_prebins=6)
+    optb.fit(x_step, y_step)
+
+    # The prediction really does leave [0, 1] here -- otherwise the test
+    # would pass for the wrong reason.
+    event_rate = optb.transform(x_step, metric="event_rate")
+    assert event_rate.min() < 0
+    assert event_rate.max() > 1
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        woe = optb.transform(x_step, metric="woe")
+
+    assert np.isfinite(woe).all()
+    assert not [w for w in caught if issubclass(w.category, RuntimeWarning)]
+
+    # The bound is a safety net for the WoE conversion only: event_rate is
+    # the raw prediction the caller asked for and stays unbounded.
+    assert np.isfinite(event_rate).all()
+
+
+def test_caller_supplied_estimator_is_used():
+    # The default builds a LogisticRegression; the else branch takes the
+    # caller's object. Passing one is the only route into it.
+    from sklearn.linear_model import LogisticRegression
+
+    estimator = LogisticRegression(C=0.5)
+    optb = OptimalPWBinning(estimator=estimator, max_n_prebins=6)
+    x_step = np.linspace(0, 10, 300)
+    optb.fit(x_step, (x_step > 5).astype(int))
+
+    assert optb.status == "OPTIMAL"
+    # Documented in reports/OPEN_ITEMS.md: fit uses the caller's object
+    # rather than a clone of it.
+    assert optb.estimator is estimator
+
+
+def test_woe_of_a_missing_bucket_holding_both_classes():
+    # metric="woe" with metric_missing="empirical" and a missing bucket that
+    # is not pure -- the branch that converts the bucket's empirical event
+    # rate to WoE.
+    x_m = np.r_[np.linspace(0, 10, 300), np.full(40, np.nan)]
+    y_m = np.r_[(np.linspace(0, 10, 300) > 5).astype(int),
+                np.array([1] * 15 + [0] * 25)]
+
+    optb = OptimalPWBinning(max_n_prebins=6).fit(x_m, y_m)
+    woe = optb.transform(np.array([np.nan]), metric="woe",
+                         metric_missing="empirical")
+
+    assert np.isfinite(woe).all()
+    assert woe[0] != 0.0
+
+    # A pure missing bucket has no WoE and reports 0, not +/-inf.
+    y_pure = np.r_[(np.linspace(0, 10, 300) > 5).astype(int),
+                   np.zeros(40, int)]
+    optb_pure = OptimalPWBinning(max_n_prebins=6).fit(x_m, y_pure)
+    assert optb_pure.transform(np.array([np.nan]), metric="woe",
+                               metric_missing="empirical")[0] == 0.0
+
+
+def test_empty_piecewise_table_reports_zero_shares():
+    # t_n_records == 0 has no shares to report. Only reachable on a directly
+    # constructed table: a fit always has records.
+    table = PWBinningTable(
+        name="x", special_codes=None, splits=np.array([]),
+        coef=np.array([[0.5]]), n_nonevent=np.array([0, 0, 0]),
+        n_event=np.array([0, 0, 0]), min_x=0.0, max_x=1.0,
+        d_metrics={"Gini index": 0.0, "IV (Jeffrey)": 0.0,
+                   "JS (Jensen-Shannon)": 0.0, "Hellinger": 0.0,
+                   "Triangular": 0.0, "KS": 0.0, "Avg precision": 0.0,
+                   "Brier score": 0.0})
+
+    df = table.build()
+
+    # Zero shares, not nan, and no RuntimeWarning on the way there.
+    assert list(df["Count (%)"]) == [0.0] * len(df)

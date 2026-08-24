@@ -762,6 +762,40 @@ def test_binning_table_empty_counts_report_zeros():
     assert table.gini == 0.
 
 
+def test_degenerate_binning_table_analysis_reports_zeros(capsys):
+    # clause 4 of the degenerate-input contract: analysis() succeeds on a
+    # table with no odds to compare and reports zeros, with no RuntimeWarning
+    # escaping. The significance block was guarded on the bin count alone --
+    # `if len(n_nev) >= 2` -- so with three clean bins scipy was handed a
+    # contingency table with a zero marginal and raised
+    # "The internally computed table of expected frequencies has a zero
+    # element at (0, 0)"; the all-empty table produced nan instead.
+    fixtures = (
+        ("all event", [0, 0, 0, 0, 0], [50, 30, 20, 5, 5]),
+        ("all non-event", [50, 30, 20, 5, 5], [0, 0, 0, 0, 0]),
+        ("no record at all", [0] * 5, [0] * 5),
+        )
+
+    for name, n_nonevent, n_event in fixtures:
+        table = BinningTable("x", "numerical", None, np.array([1., 2.]),
+                             np.array(n_nonevent), np.array(n_event))
+        table.build()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            table.analysis()
+
+        out = capsys.readouterr().out
+        cramer = [ln for ln in out.splitlines() if "Cramer's V" in ln][0]
+        quality = [ln for ln in out.splitlines() if "Quality score" in ln][0]
+
+        assert float(cramer.split()[-1]) == 0.0, name
+        assert float(quality.split()[-1]) == 0.0, name
+        assert table.quality_score == 0.0, name
+        # no pair of bins can be tested, so no row is invented for one
+        assert "Significance tests\n\n    None" in out, name
+
+
 def test_pure_clean_bin_moves_the_trend_and_the_plot(capsys, tmp_path):
     # A pin, not a regression test: it has never been red. Gating the event
     # rate on records rather than on mixedness moves every bin that lacks
@@ -950,6 +984,114 @@ def test_multiclass_table_analysis(capsys):
 
     table.analysis(print_output=False)
     assert capsys.readouterr().out == ""
+
+
+def test_multiclass_js_drops_only_the_classes_with_no_event():
+    # a class with no event anywhere has no distribution to normalise, so it
+    # is dropped -- the same rule gini applies to a bin holding no record.
+    # The guard used to be `if np.all(t_n_event_class)`, which threw away the
+    # whole multivariate divergence as soon as one class was absent, even
+    # though the remaining classes carry a real, computable divergence.
+    n_event = np.array([[80, 20, 0], [30, 60, 0], [5, 5, 0], [0, 0, 0],
+                        [0, 0, 0]])
+
+    table = MulticlassBinningTable("x", None, np.array([1., 2.]), n_event,
+                                   [0, 1, 2])
+    table.build()
+
+    # the two classes that do have events, on their own
+    present = MulticlassBinningTable("x", None, np.array([1., 2.]),
+                                     n_event[:, :2], [0, 1])
+    present.build()
+
+    assert present.js > 0.
+    assert table.js == approx(present.js)
+
+
+def test_multiclass_js_is_zero_with_fewer_than_two_classes_present():
+    # A pin, not a regression test: it has never been red. One distribution
+    # has nothing to be compared against, so the narrowed guard has to keep
+    # answering exactly 0 rather than the -1e-17 the formula would give.
+    n_event = np.array([[80, 0], [30, 0], [5, 0], [0, 0], [0, 0]])
+
+    table = MulticlassBinningTable("x", None, np.array([1., 2.]), n_event,
+                                   [0, 1])
+    table.build()
+
+    assert table.js == 0.
+
+
+def test_multiclass_analysis_skips_untestable_pairs(capsys):
+    # the multiclass sibling of
+    # test_degenerate_binning_table_analysis_reports_zeros: chi2_cramer_v_multi
+    # and frequentist_pvalue were guarded on the bin count alone, so a table
+    # with a zero marginal reached scipy -- "The internally computed table of
+    # expected frequencies has a zero element" for a class absent from a pair,
+    # a nan Cramer's V for a table holding no record at all
+    n_event = np.array([[10, 0], [0, 0], [5, 0], [0, 0], [0, 0]])
+    table = MulticlassBinningTable("x", None, np.array([1., 2.]), n_event,
+                                   [0, 1])
+    table.build()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        table.analysis()
+
+    out = capsys.readouterr().out
+    cramer = [ln for ln in out.splitlines() if "Cramer's V" in ln][0]
+    assert float(cramer.split()[-1]) == 0.0
+    assert "Significance tests\n\n    None" in out
+
+    empty = MulticlassBinningTable("x", None, np.array([1., 2.]),
+                                   np.zeros((5, 2), dtype=int), [0, 1])
+    empty.build()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        empty.analysis(print_output=False)
+
+    assert empty.quality_score == 0.
+
+
+def test_continuous_analysis_skips_bins_holding_no_record(capsys):
+    # the continuous sibling: Welch's statistic divides by the observation
+    # count of each bin, so a bin holding no record produced
+    # "invalid value encountered in divide" and a nan p-value
+    zeros = np.zeros(5)
+    table = ContinuousBinningTable(
+        "x", "numerical", None, np.array([1., 2.]), np.zeros(5, dtype=int),
+        zeros, zeros, zeros, zeros, np.zeros(5, dtype=int))
+    table.build()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        table.analysis()
+
+    out = capsys.readouterr().out
+    assert "Significance tests\n\n    None" in out
+    assert table.quality_score == 0.
+
+
+def test_multiclass_single_class_analysis_emits_no_runtime_warning():
+    # clause 4 for the multiclass table: multiclass_binning_quality_score
+    # normalises the divergence with np.log(n_classes), which is 0 for a
+    # single class -- "invalid value encountered in scalar divide", and a
+    # quality score of nan
+    xm = np.linspace(0., 10., 200)
+    ym = np.ones(200, dtype=int)
+
+    optb = MulticlassOptimalBinning(max_n_prebins=6)
+    optb.fit(xm, ym)
+
+    assert optb.status == "OPTIMAL"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        optb.binning_table.build()
+        optb.binning_table.analysis(print_output=False)
+
+    assert optb.binning_table.js == 0.
+    assert optb.binning_table.quality_score == 0.
 
 
 # ---------------------------------------------------------------------------

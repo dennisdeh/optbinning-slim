@@ -188,7 +188,12 @@ class PWBinningTable(BinningTable):
             df["c{}".format(i)] = list(self.coef[:, i]) + extra_bins
 
         if add_totals:
-            totals = ["", t_n_records, 1, self._t_n_nonevent, self._t_n_event]
+            # An empty table holds no share of anything; the literal 1 said
+            # "100% of the records" for a table with none. Same guard as the
+            # 1D and 2D tables.
+            t_p_records = 1 if t_n_records else 0
+            totals = ["", t_n_records, t_p_records, self._t_n_nonevent,
+                      self._t_n_event]
             totals += ["-"] * n_coefs
             df.loc["Totals"] = totals
 
@@ -217,6 +222,14 @@ class PWBinningTable(BinningTable):
 
         save_kwargs : dict or None (default=None)
             Additional keyword arguments to be passed to `plt.savefig`.
+
+        Notes
+        -----
+        The plotted curve is drawn from the fitted probability bounded to
+        ``[1e-8, 1 - 1e-8]``, the bound
+        ``optbinning.binning.piecewise.metrics.binary_metrics`` applies, so
+        that the Weight of Evidence stays finite where the fit predicts a
+        probability of 0 or 1.
         """
         _check_is_built(self)
 
@@ -255,9 +268,17 @@ class PWBinningTable(BinningTable):
 
         x_samples = np.linspace(self.min_x, self.max_x, n_samples)
 
+        # Bound the fitted probability away from 0 and 1 exactly as
+        # `piecewise/metrics.py::binary_metrics` does before scoring it: the
+        # WoE of a probability of 0 or 1 is infinite, matplotlib drops those
+        # points without saying so, and the divide escapes as a
+        # RuntimeWarning. The bound is far below the resolution of the plot.
+        min_pred = 1e-8
+        max_pred = 1 - min_pred
+
         metric_values = transform_binary_target(
-            self.splits, x_samples, self.coef, 0, 1, self._t_n_nonevent,
-            self._t_n_event, 0, 0, 0, 0, [], metric, 0, 0)
+            self.splits, x_samples, self.coef, min_pred, max_pred,
+            self._t_n_nonevent, self._t_n_event, 0, 0, 0, 0, [], metric, 0, 0)
 
         if metric == "woe":
             metric_label = "WoE"
@@ -555,7 +576,9 @@ class PWContinuousBinningTable:
             t_min = np.nanmin(self.min_target[:-n_bins_extra])
             t_max = np.nanmax(self.max_target[:-n_bins_extra])
             t_n_zeros = self.n_zeros.sum()
-            totals = ["", t_n_records, 1, t_sum, "", t_min, t_max, t_n_zeros]
+            t_p_records = 1 if t_n_records else 0
+            totals = ["", t_n_records, t_p_records, t_sum, "", t_min, t_max,
+                      t_n_zeros]
             totals += ["-"] * n_coefs
             df.loc["Totals"] = totals
 

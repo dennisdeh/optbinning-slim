@@ -77,6 +77,24 @@ def bin_str_format(bins, show_digits):
     return bin_str
 
 
+def _has_positive_marginals(obs):
+    """Whether every marginal of a contingency table is positive.
+
+    ``scipy.stats.chi2_contingency`` rejects a table with a zero row -- a
+    class absent from every bin -- or a zero column -- a bin holding no
+    record: the expected frequency it computes there is zero, and it raises
+    "The internally computed table of expected frequencies has a zero
+    element" rather than returning nan.
+
+    This is the rule ``BinningTable.build`` already applies to WoE, IV and
+    JS: a bin missing a class has no odds to compare against the rest.
+    """
+    obs = np.asarray(obs)
+
+    return bool(obs.size and np.all(obs.sum(axis=0) > 0) and
+                np.all(obs.sum(axis=1) > 0))
+
+
 def bin_categorical(splits_categorical, categories, cat_others, user_splits):
     splits = np.ceil(splits_categorical).astype(int)
     n_categories = len(categories)
@@ -956,6 +974,12 @@ class BinningTable:
         chi2_contingency.html>`_, and the Fisher exact test uses
         `scipy.stats.fisher_exact <https://docs.scipy.org/doc/scipy/reference/
         generated/scipy.stats.fisher_exact.html>`_.
+
+        A pair of bins with no odds to compare -- one of them holding no
+        record, or the two together carrying a single class -- has no
+        contingency table, so no row is reported for it. Cramer's V is 0
+        whenever the same is true of the table as a whole, which is the case
+        for a target carrying a single class.
         """
         _check_is_built(self)
 
@@ -977,29 +1001,41 @@ class BinningTable:
         n_nev = self.n_nonevent[:n_metric]
         n_ev = self.n_event[:n_metric]
 
-        if len(n_nev) >= 2:
+        # A bin count of two is not enough: the table also has to hold odds
+        # to compare, or scipy rejects the zero marginal outright.
+        if len(n_nev) >= 2 and _has_positive_marginals([n_nev, n_ev]):
             _, cramer_v = chi2_cramer_v(n_nev, n_ev)
         else:
             cramer_v = 0
 
+        bins_a = []
         t_statistics = []
         p_values = []
         p_a_b = []
         p_b_a = []
         for i in range(n_metric-1):
             obs = np.array([n_nev[i:i+2], n_ev[i:i+2]])
+
+            # An untestable pair is skipped rather than reported, so the
+            # table never carries a made-up p-value for it.
+            if not _has_positive_marginals(obs):
+                continue
+
             t_statistic, p_value = frequentist_pvalue(obs, pvalue_test)
             pab, pba = bayesian_probability(obs, n_samples)
 
+            bins_a.append(i)
             p_a_b.append(pab)
             p_b_a.append(pba)
 
             t_statistics.append(t_statistic)
             p_values.append(p_value)
 
+        bins_a = np.asarray(bins_a, dtype=int)
+
         df_tests = pd.DataFrame({
-                "Bin A": np.arange(n_metric-1),
-                "Bin B": np.arange(n_metric-1) + 1,
+                "Bin A": bins_a,
+                "Bin B": bins_a + 1,
                 "t-statistic": t_statistics,
                 "p-value": p_values,
                 "P[A > B]": p_a_b,
@@ -1211,7 +1247,9 @@ class MulticlassBinningTable:
         A table holding no record at all reports 0 for every share and
         every event rate, the Count (%) of the totals row included; that
         row is otherwise the constant 1. A class with no event in any bin
-        contributes no distribution, so the Jensen-Shannon divergence is 0.
+        has no distribution to normalise and is left out of the
+        Jensen-Shannon divergence, which is computed over the classes that
+        do have events; with fewer than two of those it is 0.
         """
         _check_build_parameters(show_digits, add_totals)
 
@@ -1237,11 +1275,16 @@ class MulticlassBinningTable:
                 mask[:, i], i] / n_records[mask[:, i]]
 
         # Compute Jensen-Shannon multivariate divergence. A class with no
-        # event anywhere has no distribution to compare, so the divergence
-        # is 0 rather than the nan the 0/0 would give.
+        # event anywhere has no distribution to normalise -- its column
+        # would be 0/0 -- so it is dropped, the same way gini drops a bin
+        # holding no record. Fewer than two classes left is nothing to
+        # compare, and the divergence is 0.
         t_n_event_class = self.n_event.sum(axis=0)
-        if np.all(t_n_event_class):
-            p_event = self.n_event / t_n_event_class
+        mask_class = t_n_event_class > 0
+
+        if np.count_nonzero(mask_class) >= 2:
+            p_event = (self.n_event[:, mask_class] /
+                       t_n_event_class[mask_class])
             self._js = jensen_shannon_multivariate(p_event)
         else:
             self._js = 0.
@@ -1486,6 +1529,11 @@ class MulticlassBinningTable:
         The Chi-square test uses `scipy.stats.chi2_contingency
         <https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.
         chi2_contingency.html>`_.
+
+        A pair of bins whose contingency table has a zero marginal -- one of
+        them holding no record, or a class absent from both -- cannot be
+        tested, so no row is reported for it; Cramer's V is 0 whenever the
+        same is true of the table as a whole.
         """
         _check_is_built(self)
 
@@ -1494,23 +1542,37 @@ class MulticlassBinningTable:
         n_metric = n_bins - 1 - self._n_specials
 
         n_ev = self.n_event[:n_metric, :]
-        if len(n_ev) >= 2:
+
+        # A bin count of two is not enough: every marginal has to be
+        # positive, or scipy rejects the table. Same rule as the binary
+        # sibling.
+        if len(n_ev) >= 2 and _has_positive_marginals(n_ev):
             _, cramer_v = chi2_cramer_v_multi(n_ev)
         else:
             cramer_v = 0
 
+        bins_a = []
         t_statistics = []
         p_values = []
         for i in range(n_metric-1):
             obs = n_ev[i:i+2, :]
+
+            # An untestable pair is skipped rather than reported, so the
+            # table never carries a made-up p-value for it.
+            if not _has_positive_marginals(obs):
+                continue
+
             t_statistic, p_value = frequentist_pvalue(obs, "chi2")
 
+            bins_a.append(i)
             t_statistics.append(t_statistic)
             p_values.append(p_value)
 
+        bins_a = np.asarray(bins_a, dtype=int)
+
         df_tests = pd.DataFrame({
-                "Bin A": np.arange(n_metric-1),
-                "Bin B": np.arange(n_metric-1) + 1,
+                "Bin A": bins_a,
+                "Bin B": bins_a + 1,
                 "t-statistic": t_statistics,
                 "p-value": p_values
             })
@@ -2075,6 +2137,7 @@ class ContinuousBinningTable:
         mean = self._mean[:n_metric]
         std = self.stds[:n_metric]
 
+        bins_a = []
         t_statistics = []
         p_values = []
 
@@ -2083,15 +2146,24 @@ class ContinuousBinningTable:
             s, s2 = std[i], std[i+1]
             r, r2 = n_records[i], n_records[i+1]
 
+            # A bin holding no record has no mean to compare: Welch's
+            # statistic divides by its observation count. Skipped rather
+            # than reported, so no made-up p-value reaches the table.
+            if not r or not r2:
+                continue
+
             t_statistic, p_value = stats.ttest_ind_from_stats(
                 u, s, r, u2, s2, r2, False)
 
+            bins_a.append(i)
             t_statistics.append(t_statistic)
             p_values.append(p_value)
 
+        bins_a = np.asarray(bins_a, dtype=int)
+
         df_tests = pd.DataFrame({
-                "Bin A": np.arange(n_metric-1),
-                "Bin B": np.arange(n_metric-1) + 1,
+                "Bin A": bins_a,
+                "Bin B": bins_a + 1,
                 "t-statistic": t_statistics,
                 "p-value": p_values
             })

@@ -11,6 +11,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 
 from ...information import mark_no_solution
+from ...information import mark_solve_skipped
 
 
 class Binning2DMIP:
@@ -99,8 +100,10 @@ class Binning2DMIP:
                 max(1, int(round(self.time_limit * 1000))))
             status = self.solver_.Solve()
         else:
-            # The model is left built but unsolved.
+            # The model is left built but unsolved, and unlike the statuses
+            # below it holds no readable best bound either.
             status = pywraplp.Solver.NOT_SOLVED
+            mark_solve_skipped(self.solver_)
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:

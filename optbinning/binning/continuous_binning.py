@@ -52,7 +52,7 @@ def _check_parameters(name, dtype, prebinning_method, max_n_prebins,
                          'values are "cart", "quantile" and "uniform".')
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if not 0. < min_prebin_size <= 0.5:
@@ -163,7 +163,7 @@ def _check_parameters(name, dtype, prebinning_method, max_n_prebins,
 
     if special_codes is not None:
         if not isinstance(special_codes, (np.ndarray, list, dict)):
-            raise TypeError("special_codes must be a dit, list or "
+            raise TypeError("special_codes must be a dict, list or "
                             "numpy.ndarray.")
 
         if isinstance(special_codes, dict) and not len(special_codes):
@@ -173,7 +173,7 @@ def _check_parameters(name, dtype, prebinning_method, max_n_prebins,
     if split_digits is not None:
         if (not isinstance(split_digits, numbers.Integral) or
                 not 0 <= split_digits <= 8):
-            raise ValueError("split_digist must be an integer in [0, 8]; "
+            raise ValueError("split_digits must be an integer in [0, 8]; "
                              "got {}.".format(split_digits))
 
     if not isinstance(time_limit, numbers.Number) or time_limit < 0:
@@ -265,7 +265,7 @@ class ContinuousOptimalBinning(OptimalBinning):
 
     outlier_detector : str or None, optional (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method, "zcore" to use the modified
+        the interquartile range based method, "zscore" to use the modified
         Z-score method or "yquantile" to use the y-axis detector over
         quantiles.
 
@@ -765,11 +765,18 @@ class ContinuousOptimalBinning(OptimalBinning):
             min_x = None
             max_x = None
 
+        # The table reads nothing from user_splits but whether it was
+        # supplied -- bin_categorical picks its bin layout from that -- so it
+        # carries the caller's list, not the reordered and pruned working
+        # copy. to_dict() writes that attribute out verbatim.
+        table_user_splits = (None if self._user_splits is None
+                             else self.user_splits)
+
         self._binning_table = ContinuousBinningTable(
             self.name, self.dtype, self.special_codes, self._splits_optimal,
             self._n_records, self._sums, self._stds, self._min_target,
             self._max_target, self._n_zeros, min_x, max_x, self._categories,
-            self._cat_others, self._user_splits)
+            self._cat_others, table_user_splits)
 
         self._time_postprocessing = time.perf_counter() - time_postprocessing
 

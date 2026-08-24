@@ -542,23 +542,42 @@ def test_cart_bin_count_floors():
     assert clean["Non-event"].min() >= 40
 
 
-def test_cart_bin_count_bounds_can_be_infeasible():
-    # The cart strategy may only assign unions of the tree's leaf rectangles,
-    # so a per-bin cap the free grid can satisfy has no admissible cover here.
+def test_cart_bin_count_bounds():
+    # Both per-bin count caps drop rectangles inside model_data_cart, and a
+    # cover of the remainder still exists: the caps bind, the fit does not
+    # fail. The free grid reaches the same answer.
     bounds = {"max_bin_n_event": 70, "max_bin_n_nonevent": 70,
               "min_bin_n_event": 5, "min_bin_n_nonevent": 5}
 
-    optb_cart = OptimalBinning2D(strategy="cart", **bounds, **prebins)
+    for strategy in ("cart", "grid"):
+        optb = OptimalBinning2D(strategy=strategy, **bounds, **prebins)
+        optb.fit(x, y, z)
+        assert optb.status == "OPTIMAL"
+
+        clean = optb.binning_table.build(add_totals=False).iloc[:-2]
+        assert clean["Event"].max() <= 70
+        assert clean["Non-event"].max() <= 70
+        assert clean["Event"].min() >= 5
+        assert clean["Non-event"].min() >= 5
+
+
+def test_cart_bin_size_cap_can_be_infeasible():
+    # A cart bin is a union of two or more of the tree's leaves, never a
+    # single one, so a size cap that only a single grid cell can meet has no
+    # admissible cover -- while the free grid, which may bin one cell on its
+    # own, satisfies it.
+    optb_cart = OptimalBinning2D(strategy="cart", max_bin_size=0.12,
+                                 **prebins)
     optb_cart.fit(x, y, z)
     assert optb_cart.status == "INFEASIBLE"
 
-    optb_grid = OptimalBinning2D(strategy="grid", **bounds, **prebins)
+    optb_grid = OptimalBinning2D(strategy="grid", max_bin_size=0.12,
+                                 **prebins)
     optb_grid.fit(x, y, z)
     assert optb_grid.status == "OPTIMAL"
 
     clean = optb_grid.binning_table.build(add_totals=False).iloc[:-2]
-    assert clean["Event"].max() <= 70
-    assert clean["Non-event"].max() <= 70
+    assert clean["Count"].max() <= np.ceil(0.12 * n_samples)
 
 
 def test_cart_single_class_rectangles():
@@ -1127,8 +1146,10 @@ def test_defect_cart_with_one_unsplit_axis():
     # max_leaf_nodes bound but left the tree with exactly two leaves, and
     # model_data_cart only admits a rectangle that merges two or more of
     # them -- so the only candidate was their union, the whole grid: one
-    # bin, zero IV, status OPTIMAL and nothing discretised. An unsplit axis
-    # must not collapse the leaf budget.
+    # bin, zero IV, status OPTIMAL and nothing discretised. The budget is
+    # the grid's cell count, four here, which buys two bins. It cannot buy
+    # more than one on a grid of three cells or fewer, whatever the budget:
+    # see test_defect_cart_leaf_budget_on_a_small_grid.
     optb = OptimalBinning2D(strategy="cart", **prebins)
     optb.fit(x, np.ones(n_samples), z)
 
@@ -1161,6 +1182,54 @@ def test_defect_continuous_cart_with_one_unsplit_axis():
     assert len(optb.splits[0]) > 1
     assert df["Count"].iloc[0] < n_samples
     assert df.loc["Totals", "IV"] > 0
+
+
+@mark.parametrize("caps", [(2, 3), (3, 2), (4, 2), (2, 4)])
+def test_defect_cart_leaf_budget_on_a_small_grid(caps):
+    # Nothing is degenerate here: both axes are informative and the grid has
+    # six to eight cells. But upstream's clf_nodes = n_splits_x * n_splits_y
+    # is 2 or 3 at these prebinning caps, and a cart bin merges two or more
+    # of the tree's leaves -- so b bins cost 2b leaves and a budget under
+    # four can only return their union, the whole grid: one bin, zero IV,
+    # status OPTIMAL and nothing discretised. Flooring the product at 2
+    # covered only the caps that drive it below 2. The budget is the finest
+    # partition the grid admits, its cell count.
+    cx, cy = caps
+    caps_kw = {"max_n_prebins_x": cx, "max_n_prebins_y": cy}
+
+    optb = OptimalBinning2D(strategy="cart", **caps_kw)
+    optb.fit(x, y, z)
+
+    assert optb.status == "OPTIMAL"
+
+    df = optb.binning_table.build()
+    assert df["Count"].iloc[0] < n_samples
+    assert df.loc["Totals", "IV"] > 0
+
+    # cart searches a subset of the rectangles the free grid searches, so it
+    # cannot beat it -- but it must not be left at the trivial cover either.
+    optb_grid = OptimalBinning2D(**caps_kw)
+    optb_grid.fit(x, y, z)
+    optb_grid.binning_table.build()
+
+    assert 0 < optb.binning_table.iv <= optb_grid.binning_table.iv + 1e-9
+
+
+@mark.parametrize("caps", [(2, 3), (3, 2), (4, 2), (2, 4)])
+def test_defect_continuous_cart_leaf_budget_on_a_small_grid(caps):
+    # The continuous twin: the same expression feeds a DecisionTreeRegressor
+    # in ContinuousOptimalBinning2D._fit.
+    cx, cy = caps
+    caps_kw = {"max_n_prebins_x": cx, "max_n_prebins_y": cy}
+
+    optb = ContinuousOptimalBinning2D(strategy="cart", **caps_kw)
+    optb.fit(x, y, zc)
+
+    assert optb.status == "OPTIMAL"
+
+    df = optb.binning_table.build()
+    assert df["Count"].iloc[0] < n_samples
+    assert optb.binning_table.iv > 0
 
 
 def test_defect_cart_one_rectangle():
@@ -1538,6 +1607,7 @@ def test_defect_build_without_a_solution_no_warning(solver):
 
     assert df.loc["Totals", "Count"] == 0
     assert df.loc["Totals", "Event rate"] == 0.0
+    assert df.loc["Totals", "Count (%)"] == 0.0
     assert df["Count (%)"].iloc[0] == 0.0
     assert np.all(np.isfinite(optb.binning_table._W))
 
@@ -1559,4 +1629,5 @@ def test_defect_continuous_build_without_a_solution_no_warning(solver):
 
     assert df.loc["Totals", "Count"] == 0
     assert df.loc["Totals", "Mean"] == 0.0
+    assert df.loc["Totals", "Count (%)"] == 0.0
     assert df["Count (%)"].iloc[0] == 0.0

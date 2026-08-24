@@ -43,7 +43,7 @@ def _check_parameters(name, prebinning_method, max_n_prebins, min_prebin_size,
                          'values are "cart", "quantile" and "uniform".')
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if not 0. < min_prebin_size <= 0.5:

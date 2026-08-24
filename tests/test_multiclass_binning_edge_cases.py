@@ -5,6 +5,9 @@ MulticlassOptimalBinning edge-case and chaos testing.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+from contextlib import redirect_stdout
+from io import StringIO
+
 import numpy as np
 import pandas as pd
 
@@ -103,7 +106,7 @@ def test_params_special_codes_empty_dict():
     with raises(ValueError, match="special_codes empty"):
         MulticlassOptimalBinning(special_codes={}).fit(x, y)
 
-    with raises(TypeError, match="special_codes must be a dit, list or"):
+    with raises(TypeError, match="special_codes must be a dict, list or"):
         MulticlassOptimalBinning(special_codes=1).fit(x, y)
 
 
@@ -984,3 +987,17 @@ def test_json_round_trip_special_codes_ndarray(tmp_path):
 
         assert optb_json.transform(x_special) == approx(
             optb.transform(x_special), rel=1e-12)
+
+
+def test_verbose_logs_the_trend_change_position():
+    # The explicit "peak_heuristic" list entry computes a trend change point
+    # and logs it. Only reachable with verbose=True and an explicit heuristic
+    # trend, which is why the log line went uncovered.
+    buf = StringIO()
+    optb = MulticlassOptimalBinning(
+        monotonic_trend=["peak_heuristic"] * 3, verbose=True)
+
+    with redirect_stdout(buf):
+        optb.fit(x, y)
+
+    assert optb.status == "OPTIMAL"

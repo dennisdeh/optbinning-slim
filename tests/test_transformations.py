@@ -465,6 +465,13 @@ def test_unknown_category_uses_the_whole_sample_event_rate():
     # is truncated to the non-special bins whenever metric_special and
     # metric_missing are numeric, which both inflates the rate and makes an
     # unknown category depend on arguments that do not describe it.
+    #
+    # The OptimalBinning docstring of cat_unknown states the invariant that
+    # settles which denominator is right: "if transform metric == 'woe' then
+    # woe(mean event rate) = 0". It holds only for the mean event rate of
+    # the whole sample. Measured 2026-08-24 on this data, the truncated
+    # denominator counted 60 of the 300 records and reported a mean event
+    # rate of 4.42 -- past 1, so its WoE was nan.
     rng = np.random.RandomState(0)
     cats = np.array(["A", "B", "C"])[rng.randint(0, 3, 60)].astype(object)
     y_clean = (rng.rand(60) < 0.5).astype(int)
@@ -490,6 +497,9 @@ def test_unknown_category_uses_the_whole_sample_event_rate():
 
     assert t_er == approx([total_rate])
     assert t_woe == approx([expected_woe])
+
+    # ... which is the documented constant, to floating-point exactness.
+    assert t_woe == approx([0.0], abs=1e-12)
 
     # And the value of an unknown category does not depend on how the
     # special bucket is transformed.

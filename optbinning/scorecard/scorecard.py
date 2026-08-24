@@ -41,7 +41,7 @@ def _check_parameters(binning_process, estimator, scaling_method,
     if scaling_method is not None:
         if scaling_method not in ("pdo_odds", "min_max"):
             raise ValueError('Invalid value for scaling_method. Allowed '
-                             'string values are "pd_odds" and "min_max".')
+                             'string values are "pdo_odds" and "min_max".')
 
         if scaling_method_params is None:
             raise ValueError("scaling_method_params cannot be None if "
@@ -76,7 +76,7 @@ def _check_scorecard_scaling(scaling_method, scaling_method_params,
             default_keys = ("pdo", "odds", "scorecard_points")
 
             if target_type != "binary":
-                raise ValueError('scaling_method "pd_odds" is not supported '
+                raise ValueError('scaling_method "pdo_odds" is not supported '
                                  'for a continuous target.')
 
         elif scaling_method == "min_max":

@@ -294,9 +294,8 @@ def transform_binary_target(splits, dtype, x, n_nonevent, n_event,
         event_rate[mask_records] = (n_event[mask_records] /
                                     n_records[mask_records])
 
-        if mask.any():
-            woe[mask] = transform_event_rate_to_woe(
-                event_rate[mask], t_n_nonevent, t_n_event)
+        woe[mask] = transform_event_rate_to_woe(
+            event_rate[mask], t_n_nonevent, t_n_event)
 
         # Assign unknown category value
         if cat_unknown is None:
@@ -393,9 +392,6 @@ def transform_multiclass_target(splits, x, n_event, special_codes, metric,
                                     n_records[mask_records])
 
         for i in range(n_classes):
-            if not mask[:, i].any():
-                continue
-
             woe[mask[:, i],  i] = transform_event_rate_to_woe(
                 event_rate[mask[:, i], i], t_n_nonevent[i], t_n_event[i])
 

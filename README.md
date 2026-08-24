@@ -4,8 +4,8 @@
 ![Python](https://img.shields.io/badge/python-3.13%20%7C%203.14-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![PyPI](https://img.shields.io/badge/pypi-optbinning--slim%200.22.0-blue)
-![Tests](https://img.shields.io/badge/tests-216%20passed-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-89%25-green)
+![Tests](https://img.shields.io/badge/tests-1095%20passed-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 
 > ### Attribution
 >
@@ -159,32 +159,30 @@ Current status — *measured 2026-08-24 on Python 3.13.15*:
 
 | | |
 |---|---|
-| **Result** | **216 passed, 0 failed** (9 warnings) |
-| **Test modules** | 20 |
-| **Wall clock** | 181 s (binning problems are real solver runs; the suite is not instant) |
-| **Statement coverage** | **89%** — 11,309 statements, 1,245 uncovered |
+| **Result** | **1095 passed, 0 failed** (26 warnings) |
+| **Test modules** | 35 |
+| **Wall clock** | 241 s (binning problems are real solver runs; the suite is not instant) |
+| **Statement coverage** | **99%** — 11,564 statements, 13 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 
 Verified against: numpy 2.5.2, pandas 3.0.5, scipy 1.18.1, scikit-learn 1.9.0,
 ortools 9.15.6755, matplotlib 3.11.1, ropwr 1.2.0, ecos 2.0.14.
 
-Coverage by subsystem:
+Every subsystem — `binning/`, `binning/multidimensional/`, `binning/piecewise/`,
+`binning/distributed/`, `binning/uncertainty/` and `scorecard/` — is at 99–100%.
+The **13 statements that remain uncovered are the ones that cannot be reached**,
+and they are listed here rather than in a per-directory table because that table
+now reads 100% everywhere and says nothing:
 
-| Area | Coverage |
-|---|---|
-| `scorecard/` (scorecard, monitoring, plots, counterfactual) | 94% |
-| `binning/multidimensional/` (2D binning) | 92% |
-| `binning/piecewise/` | 92% |
-| `binning/distributed/` (sketch algorithms) | 86% |
-| `binning/uncertainty/` (scenario binning) | 96% |
-| Core estimators (`binning.py`, `continuous_binning.py`, `binning_process.py`) | 82–93% |
-| **Overall** | **89%** |
+| What | Where | Why it is unreachable |
+|---|---|---|
+| Solver-status branches (`FEASIBLE`, `ABNORMAL`, `UNBOUNDED`) | `mip_2d.py`, `rounding.py`, `counterfactual/mip.py`, `counterfactual/multi_mip.py` | These models are bounded and feasible, so CBC answers `OPTIMAL` or `INFEASIBLE`. Probed with NaN and infinite coefficients, 1e18 magnitudes and zero time limits; none provoked another status. |
+| `pympler` / `tdigest` import guards | `distributed/binning_sketch.py`, `distributed/bsketch.py` | Only reachable in an environment without the `distributed` extra. The `ImportError` they raise **is** covered. |
+| `if sfr == 0: continue` | `multidimensional/model_data_cart_2d.py` | Every sklearn leaf holds at least one sample, so the union of leaf regions is never empty. |
 
-The lowest-covered modules are `binning/piecewise/binning_information.py` (69%),
-`binning/multidimensional/mip_2d.py` (73%) and `binning/distributed/bsketch.py` (75%) —
-reporting paths and solver-specific branches that the default configuration does not
-exercise. `binning/mdlp.py` and `binning/distributed/plots.py`, both largely untested
-upstream, are now at 100%.
+They are kept deliberately — see `reports/IMPROVEMENT_SUGGESTIONS.md`, which
+records the probing behind each one so a future coverage pass does not propose
+deleting them.
 
 **The suite is fully offline** — no network access and no credentials are required.
 Fixtures live in `tests/data/` (`breast_cancer.csv`, `boston_housing.csv`,

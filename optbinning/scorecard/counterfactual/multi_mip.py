@@ -10,6 +10,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 
 from ...information import mark_no_solution
+from ...information import mark_solve_skipped
 from .mip import CFMIP
 
 
@@ -239,6 +240,7 @@ class MCFMIP(CFMIP):
             status = self.solver_.Solve()
         else:
             status = pywraplp.Solver.NOT_SOLVED
+            mark_solve_skipped(self.solver_)
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:

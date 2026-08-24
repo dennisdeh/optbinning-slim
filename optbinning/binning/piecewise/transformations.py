@@ -147,8 +147,18 @@ def transform_binary_target(splits, x, c, lb, ub, n_nonevent, n_event,
         n_special, event_rate_special, event_rate_missing)
 
     if metric == "woe":
+        # The piecewise fit is a regression, so its prediction is not
+        # confined to [0, 1] unless the caller passed lb/ub -- and
+        # log(1 / p - 1) is not finite outside it. Bound it the way
+        # piecewise/metrics.py::binary_metrics and PWBinningTable.plot
+        # already do, so metric="woe" cannot return NaN on ordinary data.
+        # The bound is far below the resolution of any reported WoE, and
+        # metric="event_rate" is left unbounded: there the raw prediction
+        # is the answer the caller asked for.
+        min_pred = 1e-8
+        clean = np.clip(x_transform[clean_mask], min_pred, 1 - min_pred)
         x_transform[clean_mask] = transform_event_rate_to_woe(
-            x_transform[clean_mask], n_nonevent, n_event)
+            clean, n_nonevent, n_event)
 
     return x_transform
 

@@ -574,14 +574,16 @@ def test_user_splits_all_removed():
 
 def test_categorical_user_splits_empty_group():
     # "zz" is not in x_cat, so that prebin holds no records; "c" is in x_cat
-    # but in no user split, so it goes to cat_others.
+    # but in no user split, so it goes to cat_others. An ordinary fit, so no
+    # RuntimeWarning may escape it -- ordering the groups by their target
+    # mean must not average over the empty one.
     user_splits = np.array([["a"], ["b"], ["zz"]], dtype=object)
 
     optb = ContinuousOptimalBinning(dtype="categorical",
                                     user_splits=user_splits)
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.simplefilter("error", RuntimeWarning)
         optb.fit(x_cat[:300], y_cat[:300])
 
     assert optb.status == "OPTIMAL"
@@ -744,8 +746,15 @@ def test_empty_user_splits_fits_a_single_bin():
     assert optb._sum_missing == 0
 
 
-def test_defect_categorical_single_user_split_group():
-    """A one-group categorical fit reports OPTIMAL but has no bins."""
+def test_categorical_single_user_split_group():
+    """A single user-split group yields one bin holding that whole group.
+
+    This certifies correct behaviour; it is not a defect pin, which is why it
+    does not carry the ``test_defect_`` prefix. The one group names every
+    category present, so nothing goes to ``cat_others`` and the fit has no
+    split point to choose: one bin, holding all 300 records, with the mean of
+    the whole sample.
+    """
     user_splits = np.array([["a", "b", "c"]], dtype=object)
 
     optb = ContinuousOptimalBinning(dtype="categorical",
@@ -753,6 +762,8 @@ def test_defect_categorical_single_user_split_group():
     optb.fit(x_cat[:300], y_cat[:300])
 
     assert optb.status == "OPTIMAL"
+    assert len(optb.splits) == 1
+    assert list(optb.splits[0]) == ["a", "b", "c"]
 
     df = optb.binning_table.build()
     assert df["Count"].values[0] == 300
@@ -762,19 +773,18 @@ def test_defect_categorical_single_user_split_group():
 def test_categorical_user_splits_absent_group_is_dropped_cleanly():
     """Two groups collapse to one when a group names an absent category.
 
-    This certifies correct behaviour; it is not a defect pin, which is why it
-    does not carry the ``test_defect_`` prefix.
     ``preprocessing_user_splits_categorical`` averages the target over each
-    group to order them, so a group no record falls into is averaged over an
-    empty selection: numpy warns "Mean of empty slice" and returns nan. The
-    nan is harmless -- ``np.argsort`` puts it last, and the empty prebin is
-    then dropped by the refinement -- and the assertion below proves it, by
-    fitting the same data without the absent group and getting the same
-    table. The warning is suppressed exactly as in
-    ``test_categorical_user_splits_empty_group`` above; guarding the mean
-    belongs in preprocessing.py, and any guard has to keep an empty group
-    sorting *last* -- a finite sentinel would move it to the front and change
-    ``sorted_idx``.
+    group to order them, so a group no record falls into used to be averaged
+    over an empty selection: numpy warned "Mean of empty slice" on an
+    ordinary user-facing fit and returned nan. The nan itself is wanted --
+    ``np.argsort`` puts it last, so the empty prebin sorts to the end and is
+    then dropped by the refinement, which a finite sentinel would not do --
+    and it is now assigned explicitly instead of being produced by the
+    warning. Hence the ``error`` filter below rather than the ``ignore`` one
+    this test used to carry.
+
+    The assertions prove the nan is harmless, by fitting the same data
+    without the absent group and getting the same table.
     """
     user_splits = np.array([["a", "b", "c"], ["absent"]], dtype=object)
 
@@ -782,7 +792,7 @@ def test_categorical_user_splits_absent_group_is_dropped_cleanly():
                                     user_splits=user_splits)
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.simplefilter("error", RuntimeWarning)
         optb.fit(x_cat[:300], y_cat[:300])
 
     assert optb.status == "OPTIMAL"

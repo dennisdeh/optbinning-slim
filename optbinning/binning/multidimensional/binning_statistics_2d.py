@@ -236,13 +236,17 @@ class BinningTable2D(BinningTable):
 
         # A solver that returned no solution -- an exhausted time limit, an
         # infeasible model -- selects no rectangle, and the table is left
-        # holding only the empty Special and Missing rows.
+        # holding only the empty Special and Missing rows. It has no rate and
+        # no shares to report, the totals share included, which is otherwise
+        # the constant 1.
         if t_n_records:
             t_event_rate = t_n_event / t_n_records
             p_records = n_records / t_n_records
+            t_p_records = 1
         else:
             t_event_rate = 0.
             p_records = np.zeros(len(n_records))
+            t_p_records = 0
 
         # A single-class target leaves one of the two totals at zero, so both
         # event distributions and the WoE constant would be 0/0. Every
@@ -365,11 +369,11 @@ class BinningTable2D(BinningTable):
 
         if add_totals:
             if show_bin_xy:
-                totals = ["", t_n_records, 1, t_n_nonevent, t_n_event,
-                          t_event_rate, "", t_iv, t_js]
+                totals = ["", t_n_records, t_p_records, t_n_nonevent,
+                          t_n_event, t_event_rate, "", t_iv, t_js]
             else:
-                totals = ["", "", t_n_records, 1, t_n_nonevent, t_n_event,
-                          t_event_rate, "", t_iv, t_js]
+                totals = ["", "", t_n_records, t_p_records, t_n_nonevent,
+                          t_n_event, t_event_rate, "", t_iv, t_js]
 
             df.loc["Totals"] = totals
 
@@ -708,13 +712,17 @@ class ContinuousBinningTable2D(ContinuousBinningTable):
         t_sum = np.nansum(self.sums)
 
         # A solver that returned no solution selects no rectangle, and the
-        # table is left holding only the empty Special and Missing rows.
+        # table is left holding only the empty Special and Missing rows. It
+        # has no mean and no shares to report, the totals share included,
+        # which is otherwise the constant 1.
         if t_n_records:
             t_mean = t_sum / t_n_records
             p_records = self.n_records / t_n_records
+            t_p_records = 1
         else:
             t_mean = 0.
             p_records = np.zeros(len(self.n_records))
+            t_p_records = 0
 
         mask = (self.n_records > 0)
         self._mean = np.zeros(len(self.n_records))
@@ -778,10 +786,11 @@ class ContinuousBinningTable2D(ContinuousBinningTable):
 
         if add_totals:
             if show_bin_xy:
-                totals = ["", t_n_records, 1, t_sum, "", t_mean, t_woe, t_iv]
+                totals = ["", t_n_records, t_p_records, t_sum, "", t_mean,
+                          t_woe, t_iv]
             else:
-                totals = ["", "", t_n_records, 1, t_sum, "", t_mean, t_woe,
-                          t_iv]
+                totals = ["", "", t_n_records, t_p_records, t_sum, "", t_mean,
+                          t_woe, t_iv]
             df.loc["Totals"] = totals
 
         self._is_built = True

@@ -64,10 +64,11 @@ def _check_parameters(name, dtype, prebinning_method, solver, divergence,
 
     if divergence not in ("iv", "js", "hellinger", "triangular"):
         raise ValueError('Invalid value for divergence. Allowed string '
-                         'values are "iv", "js", "helliger" and "triangular".')
+                         'values are "iv", "js", "hellinger" and '
+                         '"triangular".')
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if not 0. < min_prebin_size <= 0.5:
@@ -403,7 +404,7 @@ class OptimalBinning(BaseOptimalBinning):
 
     outlier_detector : str or None, optional (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method or "zcore" to use the modified
+        the interquartile range based method or "zscore" to use the modified
         Z-score method.
 
     outlier_params : dict or None, optional (default=None)
@@ -937,10 +938,17 @@ class OptimalBinning(BaseOptimalBinning):
             min_x = None
             max_x = None
 
+        # The table reads nothing from user_splits but whether it was
+        # supplied -- bin_categorical picks its bin layout from that -- so it
+        # carries the caller's list, not the reordered and pruned working
+        # copy. to_dict() writes that attribute out verbatim.
+        table_user_splits = (None if self._user_splits is None
+                             else self.user_splits)
+
         self._binning_table = BinningTable(
             self.name, self.dtype, self.special_codes, self._splits_optimal,
             self._n_nonevent, self._n_event, min_x, max_x, self._categories,
-            self._cat_others, self._user_splits)
+            self._cat_others, table_user_splits)
 
         self._time_postprocessing = time.perf_counter() - time_postprocessing
 
@@ -1182,8 +1190,18 @@ class OptimalBinning(BaseOptimalBinning):
 
         if np.any(mask_remove):
             if self.divergence in ("hellinger", "triangular"):
+                # These two divergences are defined on a pure prebin, so it
+                # is kept and only flagged. A prebin holding no record at
+                # all is a different matter: model_data computes
+                # s_event / (s_nonevent + s_event) for it, which is 0/0, and
+                # hands the optimizer a nan -- MODEL_INVALID under
+                # "hellinger" and a TypeError out of OR-Tools under
+                # "triangular". Rounding to split_digits, and ties in x,
+                # both produce such prebins.
                 self._flag_min_n_event_nonevent = True
-            else:
+                mask_remove = (n_nonevent + n_event) == 0
+
+            if np.any(mask_remove):
                 self._n_refinements += 1
 
                 if (self.dtype == "categorical" and

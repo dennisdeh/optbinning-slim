@@ -80,10 +80,11 @@ def _check_parameters(name, dtype, sketch, eps, K, solver, divergence,
 
     if divergence not in ("iv", "js", "hellinger", "triangular"):
         raise ValueError('Invalid value for divergence. Allowed string '
-                         'values are "iv", "js", "helliger" and "triangular".')
+                         'values are "iv", "js", "hellinger" and '
+                         '"triangular".')
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if min_n_bins is not None:
@@ -746,15 +747,17 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
                 # Same rounding OptimalBinning._prebinning_refinement
                 # applies, and for the same reason: split_digits describes
                 # the split points the user sees, so it has to be applied
-                # before the counts are taken. Rounding can collapse two
-                # quantiles onto one value, and the duplicate has to be
-                # dropped here: _compute_prebins removes the empty prebin
-                # it leaves only on the iv/js branch, while "hellinger" and
-                # "triangular" merely raise _flag_min_n_event_nonevent and
-                # pass the duplicates to the optimizer -- MODEL_INVALID for
-                # the former, a TypeError out of OR-Tools for the latter.
+                # before the counts are taken.
                 if self.split_digits is not None:
-                    splits = np.unique(np.round(splits, self.split_digits))
+                    splits = np.round(splits, self.split_digits)
+
+                # A sketch reports the same quantile twice wherever the
+                # stream has ties, and rounding collapses neighbours onto
+                # one value; either way the prebin between the duplicates
+                # holds no record. _compute_prebins drops those, but
+                # deduplicating here keeps the refinement from having to
+                # recurse for something already known.
+                splits = np.unique(splits)
 
             splits, n_nonevent, n_event = self._compute_prebins(splits)
         else:
@@ -789,8 +792,16 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
 
         if np.any(mask_remove):
             if self.divergence in ("hellinger", "triangular"):
+                # A pure prebin is kept and only flagged under these two
+                # divergences, but an empty one cannot be: model_data
+                # computes s_event / (s_nonevent + s_event) = 0/0 for it and
+                # hands the optimizer a nan -- MODEL_INVALID for
+                # "hellinger", a TypeError out of OR-Tools for "triangular".
+                # Same rule as OptimalBinning._compute_prebins.
                 self._flag_min_n_event_nonevent = True
-            else:
+                mask_remove = (n_nonevent + n_event) == 0
+
+            if np.any(mask_remove):
                 self._n_refinements += 1
 
                 mask_splits = np.concatenate(

@@ -3,6 +3,89 @@
 Things the code does that it should not. One entry per defect; remove the entry
 in the commit that fixes it.
 
+## `time_limit` accepts nan and inf, against its own error message
+
+*Last updated: 2026-08-24*
+
+All eight `_check_parameters` functions guard with
+
+```python
+if not isinstance(time_limit, numbers.Number) or time_limit < 0:
+    raise ValueError("time_limit must be a positive value in seconds; ...")
+```
+
+`nan < 0` and `inf < 0` are both False, so both pass. Verified 2026-08-24:
+`OptimalBinning(time_limit=float("nan")).fit(x, y)` and the `inf` form both
+complete. The message also says "positive", while the guard admits 0 — and
+`scorecard/counterfactual/counterfactual.py` uses `<= 0` with the byte-identical
+message, so the library disagrees with itself about the same parameter name.
+
+Sites: `binning/binning.py`, `binning/continuous_binning.py`,
+`binning/multiclass_binning.py`, `binning/distributed/binning_sketch.py`,
+`binning/uncertainty/binning_scenarios.py`,
+`binning/multidimensional/binning_2d.py`,
+`binning/multidimensional/continuous_binning_2d.py` and
+`scorecard/counterfactual/counterfactual.py`.
+
+Not fixed here because deciding what `time_limit=0` should mean is a behaviour
+choice, not a slip: the 2026-08-24 work made `time_limit=0` a well-defined
+"no budget" across both solver backends, and tightening the validator to `<= 0`
+would turn that into a `ValueError` and make five currently-green tests red.
+Pick one of the two readings deliberately, then make all eight agree.
+
+## `time_limit` is documented as `int`, but floats are honoured
+
+*Last updated: 2026-08-24*
+
+Every `time_limit` entry reads `time_limit : int (default=...)`. This has been
+inaccurate since before the fork: `_check_parameters` validates
+`numbers.Number`, and `solver="cp"` has always honoured a fractional value. As
+of 2026-08-24 `solver="mip"` honours one too, rounding to the nearest
+millisecond, so `int or float` is now the only accurate type. Same eight files
+as the entry above. Left with that entry so both are decided together.
+
+## `OptimalPWBinning.fit` fits the caller's estimator in place
+
+*Last updated: 2026-08-24*
+
+`OptimalPWBinning._fit` aliases the `estimator` constructor parameter rather
+than copying it, and then fits it. Verified 2026-08-24:
+
+```python
+est = LogisticRegression()
+optb = OptimalPWBinning(estimator=est).fit(x, y)
+optb.estimator is est     # True
+hasattr(est, "coef_")     # True -- the caller's object was fitted in place
+```
+
+This is the same class as the "`fit()` must not mutate its constructor
+parameters" entry in `DECISIONS.md`, which was fixed for `user_splits_fixed` on
+2026-08-24 in the four estimators that accept it. It is filed rather than fixed
+because the right answer is not obvious: `sklearn.base.clone` would give the
+caller a fresh estimator and match the sklearn contract, but a user who passes a
+pre-configured estimator and then inspects it afterwards is relying on today's
+behaviour, and nothing documents either reading.
+
+## A dict `metric_special` passes validation and then raises
+
+*Last updated: 2026-08-24*
+
+`transformations.py::_check_metric_special_missing` has a dedicated
+`elif isinstance(metric_special, dict):` branch that validates every value is a
+number, and its fall-through message advertises "a dict" as an allowed form.
+`_apply_transform` then cannot use one. Verified 2026-08-24:
+`optb.transform(x, metric="woe", metric_special={"a": 0.5})` raises
+`TypeError: float() argument must be a string or a real number, not 'dict'`.
+
+Every public `transform` docstring says `metric_special : float or str
+(default=0)`, so the docstrings and the validator disagree with each other as
+well. Either the validator's dict branch should go, or `_apply_transform` should
+map a named special code to its value — which is the reading the dict form of
+`special_codes` suggests. This was examined twice on 2026-08-24: once reported
+as a defect and refuted on the grounds that per-key semantics are undocumented,
+then re-judged, because the refutation does not explain why the validator has a
+dict branch at all.
+
 ## cvxpy cannot use its HIGHS backend in any optbinning process
 
 *Last updated: 2026-08-23*

@@ -15,6 +15,9 @@ the same input.
 # Guillermo Navas-Palencia <g.navas.palencia@gmail.com>
 # Copyright (C) 2020
 
+from contextlib import redirect_stdout
+from io import StringIO
+
 import numpy as np
 
 from pytest import approx, raises
@@ -848,3 +851,15 @@ def test_duplicated_and_low_cardinality_values():
     assert len(sboptb.splits) <= 2
     assert sboptb.binning_table.build(
         add_totals=False)["Count"].sum() == 2 * len(x)
+
+
+def test_verbose_logs_the_user_split_count():
+    # The "user splits supplied" line needs verbose=True together with
+    # user_splits, a combination no other test uses.
+    buf = StringIO()
+    optb = SBOptimalBinning(user_splits=[0.0, 1.0], verbose=True)
+
+    with redirect_stdout(buf):
+        optb.fit(x_s, y_s)
+
+    assert optb.status == "OPTIMAL"

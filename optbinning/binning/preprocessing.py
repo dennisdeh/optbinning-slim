@@ -79,7 +79,7 @@ def split_data(dtype, x, y, special_codes=None, cat_cutoff=None,
 
     outlier_detector : str or None (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method, "zcore" to use the modified
+        the interquartile range based method, "zscore" to use the modified
         Z-score method or "yquantile" to use the y-axis detector over
         quantiles.
 
@@ -358,7 +358,14 @@ def preprocessing_user_splits_categorical(user_splits, x, y,
     event_rate = np.zeros(n_user_splits)
     x_p = pd.Series(x_clean)
     for i, split in enumerate(user_splits):
-        event_rate[i] = y_clean[x_p.isin(split)].mean()
+        y_split = y_clean[x_p.isin(split).values]
+
+        # A user split naming only categories absent from x selects no
+        # record, and its target mean is undefined. np.nan is the sentinel
+        # rather than a number because np.argsort below must keep the empty
+        # group last: any finite value would order it among the populated
+        # ones and move sorted_idx.
+        event_rate[i] = y_split.mean() if len(y_split) else np.nan
 
     splits_nominal = np.array(range(n_user_splits))
     sorted_idx = np.argsort(event_rate)

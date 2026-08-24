@@ -15,6 +15,7 @@ from optbinning import BinningProcess
 from optbinning import Scorecard
 from optbinning.exceptions import CounterfactualsFoundWarning
 from optbinning.exceptions import NotGeneratedError
+from optbinning.information import solver_statistics
 from optbinning.scorecard import Counterfactual
 from optbinning.scorecard.counterfactual.mip import CFMIP
 from optbinning.scorecard.counterfactual.model_data import model_data
@@ -632,6 +633,27 @@ class _StubVariable:
         return self._value
 
 
+class _StubObjective:
+    """Stands in for the MPObjective Counterfactual.information reads the
+    solver statistics off, and records which accessor was touched. Both
+    values are non-zero, so a fabricated statistic cannot pass for a read
+    one."""
+
+    OBJECTIVE = 12.5
+    BEST_BOUND = 3.25
+
+    def __init__(self):
+        self.reads = []
+
+    def Value(self):
+        self.reads.append("Value")
+        return self.OBJECTIVE
+
+    def BestBound(self):
+        self.reads.append("BestBound")
+        return self.BEST_BOUND
+
+
 class _StubSolver:
     """Stands in for pywraplp.Solver so the time limit handed to OR-Tools is
     observable and no CBC run is needed."""
@@ -640,6 +662,7 @@ class _StubSolver:
         self._status = status
         self.time_limit_ms = None
         self.n_threads = None
+        self.objective_ = _StubObjective()
 
     def SetTimeLimit(self, milliseconds):
         self.time_limit_ms = milliseconds
@@ -649,6 +672,15 @@ class _StubSolver:
 
     def Solve(self):
         return self._status
+
+    def Objective(self):
+        return self.objective_
+
+    def NumConstraints(self):
+        return 11
+
+    def NumVariables(self):
+        return 5
 
 
 def _stub_cfmip(status, nbins=(2, 2), time_limit=7):
@@ -750,6 +782,26 @@ def test_information_after_an_infeasible_generate_is_quiet(capfd):
         assert cf.status == "INFEASIBLE"
         assert "solution was last computed" not in captured.err
         assert "No solution exists" not in captured.err
+
+
+def test_skipped_cf_solve_reports_zero_statistics_without_reading_them():
+    # A solve that never ran holds neither an objective nor a best bound,
+    # and both reads are noise: OR-Tools logs "The model has been changed
+    # since the solution was last computed" and answers the bound with
+    # -inf. Counterfactual.information hands the solver to
+    # information.solver_statistics whatever the status, so both statistics
+    # must come back zero with the solver untouched. A solve that RAN
+    # without a solution is the other case, and keeps its bound -- see
+    # tests/test_binning_solvers.py.
+    for optimizer in (_stub_cfmip(pywraplp.Solver.OPTIMAL, time_limit=0),
+                      _stub_mcfmip(pywraplp.Solver.OPTIMAL, time_limit=0)):
+        status, _ = optimizer.solve()
+        d_solver, _ = solver_statistics("mip", optimizer.solver_)
+
+        assert status == "UNKNOWN"
+        assert d_solver["objective"] == 0.0
+        assert d_solver["best_bound"] == 0.0
+        assert optimizer.solver_.objective_.reads == []
 
 
 def test_cfmip_solution_is_an_object_array_of_boolean_masks():

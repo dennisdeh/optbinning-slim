@@ -358,7 +358,14 @@ def binning_quality_score(iv, p_values, hhi_norm):
 
 
 def multiclass_binning_quality_score(js, n_classes, p_values, hhi_norm):
-    js_norm = js / np.log(n_classes)
+    # The divergence ranges over [0, log(n_classes)], which is the empty
+    # interval for a target carrying a single class: log(1) is 0 and the
+    # normalisation would be 0/0. Same degeneracy the n <= 1 branch of gini
+    # answers 0 for.
+    if n_classes <= 1:
+        js_norm = 0.
+    else:
+        js_norm = js / np.log(n_classes)
 
     return binning_quality_score(js_norm, p_values, hhi_norm)
 

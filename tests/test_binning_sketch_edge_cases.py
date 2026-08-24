@@ -1531,3 +1531,33 @@ def test_categorical_cat_unknown_transform():
 
     assert out.shape == (2,)
     assert out[1] == -1.0
+
+
+def test_tied_values_leave_no_empty_prebin():
+    # the sibling of test_split_digits_collision_leaves_no_duplicate_split
+    # with no split_digits at all: a zero-inflated discrete column makes the
+    # sketch report the same quantile several times, and the prebin between
+    # two equal splits holds no record. model_data then computes
+    # s_event / (s_nonevent + s_event) = 0/0 for it and casts the nan with
+    # astype(np.int64) -- MODEL_INVALID under "hellinger", a TypeError out
+    # of OR-Tools under "triangular", because those two keep every prebin.
+    rng = np.random.RandomState(0)
+    x = rng.choice([0., 0., 0., 0., 1., 2., 3.], size=2000)
+    y = (rng.uniform(size=2000) < 0.2 + 0.15 * x).astype(int)
+
+    for divergence in ("iv", "js", "hellinger", "triangular"):
+        optb = OptimalBinningSketch(sketch="gk", eps=1e-4, max_n_prebins=20,
+                                    divergence=divergence)
+        optb.add(x, y)
+        optb.solve()
+
+        assert optb.status == "OPTIMAL"
+        assert len(optb.splits) >= 1
+
+        prebins = optb._splits_prebinning
+        assert len(prebins) == len(np.unique(prebins))
+
+        table = optb.binning_table.build()
+        assert table["Count"].values[-1] == 2000
+        # every clean bin holds records: Special, Missing and Totals follow
+        assert (table["Count"].values[:-3] > 0).all()

@@ -198,7 +198,11 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
         prebinning splits on the x and y axis. The strategy "grid" creates a
         prebinning 2D with n_prebins_x times n_prebins_y elements. The strategy
         "cart" (experimental) reduces the number of elements by pruning. The
-        latter is recommended when the number of prebins is large.
+        latter is recommended when the number of prebins is large. A "cart"
+        bin is a union of two or more of the tree's leaves, never a single
+        one, so "cart" searches a subset of what "grid" searches: it cannot
+        beat "grid" on the objective, and it returns a single bin whenever
+        the prebinning grid has fewer than four cells.
 
     solver : str, optional (default="cp")
         The optimizer to solve the optimal binning problem. Supported solvers
@@ -568,18 +572,17 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
 
             # The tree partitions the (n_splits_x + 1) x (n_splits_y + 1)
             # grid of prebins, and model_data_cart admits only a rectangle
-            # that merges two or more leaves, so an answer of b bins needs
+            # that merges two or more leaves, so an answer of b bins costs
             # at least 2b of them. Upstream's n_splits_x * n_splits_y budget
-            # degenerates on a small grid: an axis the pre-binning left
-            # unsplit zeroes it, and one split on each axis leaves it at
-            # one, both below the max_leaf_nodes=2 sklearn accepts. Flooring
-            # it at two is not enough either -- two leaves admit only their
-            # union, i.e. the whole grid, one bin and no signal. There the
-            # budget is the number of cells, the finest partition the grid
-            # has.
-            clf_nodes = n_splits_x * n_splits_y
-            if clf_nodes < 2:
-                clf_nodes = max((n_splits_x + 1) * (n_splits_y + 1), 2)
+            # falls under that on every small grid: an axis the pre-binning
+            # left unsplit zeroes it, below the max_leaf_nodes=2 sklearn
+            # accepts, and a product of one, two or three buys only the
+            # union of the leaves -- the whole grid, one bin and no signal.
+            # The budget is the cell count, the finest partition the grid
+            # has and the most leaves the tree can hold; on a large grid the
+            # two expressions differ only by a row and a column. Below four
+            # cells no budget buys a second bin.
+            clf_nodes = max((n_splits_x + 1) * (n_splits_y + 1), 2)
 
             indices_x = np.digitize(x_clean, splits_x, right=False)
             n_bins_x = n_splits_x + 1

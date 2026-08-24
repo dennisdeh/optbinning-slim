@@ -35,6 +35,7 @@ from optbinning.binning.model_data import continuous_model_data
 from optbinning.binning.model_data import model_data
 from optbinning.binning.multidimensional.mip_2d import Binning2DMIP
 from optbinning.binning.uncertainty import SBOptimalBinning
+from optbinning.information import solver_statistics
 from sklearn.exceptions import NotFittedError
 
 
@@ -551,15 +552,40 @@ class _StubVariable:
         return self._value
 
 
+class _StubObjective:
+    """Stands in for the MPObjective the statistics are read off, and
+    records which accessor was touched. The two values are distinct and
+    non-zero, so a fabricated statistic cannot pass for a read one."""
+
+    OBJECTIVE = 12.5
+    BEST_BOUND = 3.25
+
+    def __init__(self):
+        self.reads = []
+
+    def Value(self):
+        self.reads.append("Value")
+        return self.OBJECTIVE
+
+    def BestBound(self):
+        self.reads.append("BestBound")
+        return self.BEST_BOUND
+
+
 class _StubSolver:
     """Stands in for pywraplp.Solver so every status branch of
     BinningMIP.solve can be reached: the binning model is always bounded and
-    well formed, so ABNORMAL / UNBOUNDED cannot be produced by any input."""
+    well formed, so ABNORMAL / UNBOUNDED cannot be produced by any input.
+
+    It also carries the objective information.solver_statistics reads, so a
+    test can say which of the two reads that function was allowed to
+    make."""
 
     def __init__(self, status):
         self._status = status
         self.time_limit_ms = None
         self.n_threads = None
+        self.objective_ = _StubObjective()
 
     def SetTimeLimit(self, milliseconds):
         self.time_limit_ms = milliseconds
@@ -569,6 +595,15 @@ class _StubSolver:
 
     def Solve(self):
         return self._status
+
+    def Objective(self):
+        return self.objective_
+
+    def NumConstraints(self):
+        return 11
+
+    def NumVariables(self):
+        return 5
 
 
 def _stub_optimizer(status, n=4):
@@ -733,8 +768,7 @@ def test_infeasible_mip_leaves_the_objective_alone(capfd):
     # A skipped solve is not the only solver with no objective to read: a
     # model that was solved and found INFEASIBLE has none either, and that
     # one is reachable from ordinary parameters. Reading it logs "No
-    # solution exists" per read, and cbc answers the best-bound read with
-    # the bound of a model that has no feasible solution at all.
+    # solution exists" per read.
     fixed = [False] * len(splits_all)
     fixed[5] = True
     fixed[6] = True
@@ -750,7 +784,13 @@ def test_infeasible_mip_leaves_the_objective_alone(capfd):
         assert optb.status == "INFEASIBLE"
         assert_no_unsolved_objective_read(captured)
         assert optb._optimizer["objective"] == 0
-        assert optb._optimizer["best_bound"] == 0
+        # The solve ran, so the best bound is read rather than zeroed --
+        # silently, and whatever the backend answers with. That answer is a
+        # backend artifact for an infeasible model (measured 2026-08-24: bop
+        # 0.0, cbc 1.75791710, the bound of a relaxation nothing feasible
+        # lives in), so only its finiteness is pinned; the -inf of a solver
+        # that was never solved is what it may not be.
+        assert np.isfinite(optb._optimizer["best_bound"])
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +910,10 @@ def test_2d_mip_without_a_solution_leaves_the_objective_alone(capfd):
     # 4x4 grid can satisfy, which is solved and found infeasible.
     x2, z2, y2, e2 = build_2d()
 
+    # The best bound goes with the branch: the skipped solve proved none and
+    # reports zero, the infeasible one proved one and reports it verbatim
+    # (measured 2026-08-24: 30.52445901, a backend artifact, so only its
+    # finiteness is pinned).
     cases = {"UNKNOWN": dict(time_limit=0),
              "INFEASIBLE": dict(min_n_bins=1000)}
 
@@ -882,7 +926,71 @@ def test_2d_mip_without_a_solution_leaves_the_objective_alone(capfd):
         assert optb.status == status
         assert_no_unsolved_objective_read(captured)
         assert optb._optimizer["objective"] == 0
-        assert optb._optimizer["best_bound"] == 0
+
+        if status == "UNKNOWN":
+            assert optb._optimizer["best_bound"] == 0
+        else:
+            assert np.isfinite(optb._optimizer["best_bound"])
+
+
+def test_a_solve_that_ran_without_a_solution_keeps_its_best_bound():
+    # A solve that RAN and found no incumbent is not a solve that never ran.
+    # OR-Tools answers the objective read of the first with a log line and a
+    # zero, but answers the best-bound read with the dual bound it actually
+    # proved, and answers it silently -- so the objective is the only
+    # statistic that may be replaced by a zero here.
+    for optimizer in (_stub_optimizer(pywraplp.Solver.NOT_SOLVED),
+                      _stub_2d_optimizer(pywraplp.Solver.NOT_SOLVED)):
+        status_name, _ = optimizer.solve()
+        d_solver, _ = solver_statistics("mip", optimizer.solver_)
+
+        assert status_name == "UNKNOWN"
+        assert d_solver["objective"] == 0.0
+        assert d_solver["best_bound"] == _StubObjective.BEST_BOUND
+        assert optimizer.solver_.objective_.reads == ["BestBound"]
+
+
+def test_a_skipped_solve_reads_no_statistic_at_all():
+    # The other half of the contract, and the reason the zeroing exists: a
+    # zero budget never runs Solve(), and then BOTH reads are noise --
+    # Objective().Value() logs "No solution exists", BestBound() logs "The
+    # model has been changed since the solution was last computed" and
+    # answers -inf. Both statistics are zeroed without touching the solver,
+    # which is what CP-SAT answers for the same unsolved model.
+    for optimizer in (_stub_optimizer(pywraplp.Solver.OPTIMAL),
+                      _stub_2d_optimizer(pywraplp.Solver.OPTIMAL)):
+        optimizer.time_limit = 0
+        status_name, _ = optimizer.solve()
+        d_solver, _ = solver_statistics("mip", optimizer.solver_)
+
+        assert status_name == "UNKNOWN"
+        assert d_solver["objective"] == 0.0
+        assert d_solver["best_bound"] == 0.0
+        assert optimizer.solver_.objective_.reads == []
+
+
+def test_2d_mip_that_timed_out_keeps_the_bound_it_proved(capfd):
+    # The bound of a solve that ran is not an incidental number: measured
+    # 2026-08-24 on this model, a 1 ms budget leaves cbc with the bound
+    # 5.41677614, and the same model at time_limit=60 solves to OPTIMAL with
+    # exactly that objective. Zeroing it therefore discarded the optimum
+    # itself. The value is a solver artifact, so what is pinned is that a
+    # real bound survives at all.
+    x2, z2, y2, e2 = build_2d()
+
+    optb = OptimalBinning2D(solver="mip", time_limit=0.001,
+                            max_n_prebins_x=10, max_n_prebins_y=10)
+    optb.fit(x2, z2, y2)
+    optb.information(print_level=2)
+    captured = capfd.readouterr()
+
+    # 2348 binary variables are not solved in a millisecond; the status
+    # cbc reports for giving up is its own (UNKNOWN here, INFEASIBLE seen at
+    # larger budgets), so only the absence of an incumbent is asserted.
+    assert optb.status not in ("OPTIMAL", "FEASIBLE")
+    assert_no_unsolved_objective_read(captured)
+    assert optb._optimizer["objective"] == 0
+    assert optb._optimizer["best_bound"] > 0
 
 
 def test_2d_binning_table_at_a_zero_budget_warns_nothing():
@@ -899,11 +1007,33 @@ def test_2d_binning_table_at_a_zero_budget_warns_nothing():
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            optb.binning_table.build()
+            table = optb.binning_table.build()
 
         assert optb.status == "UNKNOWN"
         assert [str(w.message) for w in caught
                 if issubclass(w.category, RuntimeWarning)] == []
+
+        # The warning check alone cannot tell a guarded divide from one
+        # silenced with np.errstate, so the numbers are pinned as well: an
+        # empty table is all zeros, never the nan a 0/0 leaves behind. The
+        # frame is the special and the missing row plus the totals, since
+        # no rectangle was selected.
+        assert list(table.index) == [0, 1, "Totals"]
+        assert not table.isna().to_numpy().any()
+
+        totals = table.loc["Totals"]
+        assert totals["Count"] == 0
+        assert totals["Event rate"] == 0
+        assert totals["IV"] == 0
+        assert totals["JS"] == 0
+
+        bt = optb.binning_table
+        assert (bt.iv, bt.js, bt.hellinger, bt.triangular) == (0, 0, 0, 0)
+        assert bt.ks == 0
+        # metrics.gini answers 0 from its n <= 1 branch and nan from the
+        # multi-bin one, which divides by te * tne; the two must agree.
+        assert not np.isnan(bt.gini)
+        assert bt.gini == 0
 
 
 def test_two_prebins_with_higher_order_trends():

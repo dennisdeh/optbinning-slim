@@ -11,6 +11,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 
 from ..information import mark_no_solution
+from ..information import mark_solve_skipped
 from .model_data import model_data
 
 
@@ -194,8 +195,11 @@ class BinningMIP:
             status = self.solver_.Solve()
         else:
             # The model is left built but unsolved: CP-SAT answers UNKNOWN
-            # for a zero budget, and so must this.
+            # for a zero budget, and so must this. Marked separately from
+            # the statuses below, because nothing on this solver can be
+            # read -- not even the best bound.
             status = pywraplp.Solver.NOT_SOLVED
+            mark_solve_skipped(self.solver_)
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:

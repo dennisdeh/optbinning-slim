@@ -173,7 +173,7 @@ class YQuantileDetector(BaseEstimator, OutlierDetector):
     ----------
     outlier_detector : str or None, optional (default=None)
         The outlier detection method. Supported methods are "range" to use
-        the interquartile range based method or "zcore" to use the modified
+        the interquartile range based method or "zscore" to use the modified
         Z-score method.
 
     outlier_params : dict or None, optional (default=None)

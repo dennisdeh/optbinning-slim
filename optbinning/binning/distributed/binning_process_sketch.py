@@ -40,7 +40,7 @@ def _check_parameters(variable_names, max_n_prebins, min_n_bins, max_n_bins,
         raise TypeError("variable_names must be a list or numpy.ndarray.")
 
     if not isinstance(max_n_prebins, numbers.Integral) or max_n_prebins <= 1:
-        raise ValueError("max_prebins must be an integer greater than 1; "
+        raise ValueError("max_n_prebins must be an integer greater than 1; "
                          "got {}.".format(max_n_prebins))
 
     if min_n_bins is not None:
