@@ -45,7 +45,8 @@ def _sources():
 def test_no_docstring_advertises_zcore():
     # "zcore" is not a value any outlier_detector accepts; the detector is
     # "zscore". Following the docstring used to raise ValueError.
-    offenders = [str(p) for p in _sources() if "zcore" in p.read_text()]
+    offenders = [str(p) for p in _sources()
+                 if "zcore" in p.read_text(encoding="utf-8")]
     assert offenders == []
 
 
@@ -70,7 +71,7 @@ def test_error_messages_only_name_accepted_values():
     # quoted values in the message must be a subset of the accepted tuple.
     bad = []
     for path in _sources():
-        src = path.read_text()
+        src = path.read_text(encoding="utf-8")
         tree = ast.parse(src)
         for node in ast.walk(tree):
             if not isinstance(node, ast.If):
@@ -166,7 +167,7 @@ def test_time_limit_is_documented_as_int_or_float():
     # across eight files and drifted for the whole life of the project.
     entries = []
     for path in _sources():
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped.startswith("time_limit : "):
                 entries.append((path.name, stripped))

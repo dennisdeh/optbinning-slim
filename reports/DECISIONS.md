@@ -730,3 +730,70 @@ registered at
 those four names before the first tag is pushed; until then the `pypi` job fails at
 the upload step with `invalid-publisher`. Nothing in the repository can create it,
 and nothing in the repository detects that it is missing.
+
+## Scenario weights are validated, not left to OR-Tools to reject
+
+*Last updated: 2026-08-24*
+
+`_check_X_Y_weights` (`optbinning/binning/uncertainty/binning_scenarios.py`)
+checked only that the number of weights matched the number of scenarios. The
+test that covered this was called `test_weights_unvalidated_values` and said so
+in its comment: *"the values are handed straight to the pre-binner and to
+OR-Tools, which reject them."* They do not reject them portably.
+
+`cp.py` turns float weights into the integers CP-SAT needs with
+`sw = 10 ** np.abs(np.log10(np.min(w)))`, then `np.int64(w[s] * sw)`. For a
+negative weight `log10` is `NaN`; for a zero it is `-inf`, so `sw` is `inf` and
+the product is `inf` or `NaN`. **Casting a non-finite float to an integer is
+undefined behaviour**, and numpy does not promise a value. Measured 2026-08-24
+on CI run 23: `weights=[-1., 2.]` produced `INT64_MIN` on Linux and Windows
+x86-64, where OR-Tools raised `TypeError: append(): incompatible function
+arguments`, and produced something acceptable on macOS arm64, where the fit
+*succeeded* and returned splits. Both runners were on the same ortools and
+numpy. This is the same class of defect as the MDLP `argsort` bug recorded
+above — an expectation pinned on undefined behaviour that happened to hold on
+the development machine.
+
+The weights are therefore validated where every other parameter in this package
+is validated: numeric dtype, finite, and **strictly positive**.
+
+Strictly positive rather than merely non-negative, because zero is the `inf`
+case and it is not a way to say *"ignore this scenario"* — the scale factor
+that a zero produces corrupts **every** weight, not just its own. Measured,
+`weights=[0., 1.]` handed the model
+`[-9223372036854775808, -9223372036854775808]`: both scenarios destroyed. A
+caller who wants a scenario ignored should omit it, and the error message says
+so.
+
+The test was renamed `test_weights_values_are_validated` and now matches the
+error *messages*, which pins that the rejection happens in validation rather
+than wherever the solver happens to trip. It was demonstrated red against the
+unfixed source, where it fails with the OR-Tools `TypeError`.
+
+What is **not** fixed here is the scaling itself — see `OPEN_ITEMS.md`. Valid,
+strictly positive weights whose ratio exceeds about 1e18 still overflow the
+same cast.
+
+## Python sources are read as UTF-8, explicitly
+
+*Last updated: 2026-08-24*
+
+`tests/test_documented_values.py` walks the package's `.py` files and greps
+them. It used `Path.read_text()`, which decodes with
+`locale.getpreferredencoding(False)` — UTF-8 on this machine and on the Linux
+and macOS runners, **cp1252 on the GitHub Windows runners**. Several docstrings
+carry typographic quotes (`Supported trends are “auto”, "ascending"...` in
+`binning.py`), so on Windows all three tests raised
+`UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d` before asserting
+anything.
+
+Python source files are UTF-8 by PEP 3120 whatever the platform's locale is, so
+the fix is `read_text(encoding="utf-8")`, not removing the quotes. Reproduced
+on Linux by forcing `LC_ALL=C PYTHONUTF8=0`, which makes the locale codec ASCII
+and gives the identical failure on the same character; the fixed file passes
+under that same hostile locale.
+
+The library's own JSON round-trip (`to_json` / `read_json`) opens files without
+an `encoding=` too, and was checked: `json.dump` defaults to
+`ensure_ascii=True`, so it writes pure ASCII and reads back correctly under any
+locale codec. It is left alone deliberately.

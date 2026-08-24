@@ -116,6 +116,13 @@ conda activate optbinning
   merge into `master`, push, delete the local **and** remote branch.
 - **Never merge until the test suite has actually finished and reported PASS.** Not on
   an in-flight run, not on a backgrounded one. See *Testing*.
+- **A green local run is not a green CI.** The local suite is one platform; CI is six
+  cells over Linux, macOS and Windows, and the defects that survive to CI are by
+  construction the ones this machine cannot show you — undefined casts that differ by
+  CPU, and the Windows locale codec. Check the run for the commit you are about to merge
+  onto, not just your own: on 2026-08-24 five commits were merged onto a `master` whose
+  macOS and Windows cells had been red since `0ead3dd`, and each new run's four failures
+  read as "the usual" until someone looked. `reports/DECISIONS.md` has both causes.
 - **There is no `gh` CLI on this machine and no PR workflow.** Do not reach for `gh`,
   and do not propose opening a PR — merge locally and push.
 - **Pushing works from an agent shell, over SSH.** `origin` was switched from HTTPS

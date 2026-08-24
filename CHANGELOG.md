@@ -217,6 +217,27 @@ exception was raised, the output merely was not what it claimed to be.
 - `actions/checkout`, `actions/setup-python` and `actions/upload-artifact`
   bumped to v5, v6 and v5, clearing the Node 20 deprecation warnings.
 
+### Fixed — the 2026-08-24 cross-platform CI failures
+
+- **A negative or zero scenario weight was rejected by the CPU, not by the
+  code.** `SBOptimalBinning.fit(..., weights=...)` validated only the *number*
+  of weights. The CP model scales them by `10 ** |log10(min(w))|`, so a
+  negative weight makes that factor `NaN` and a zero makes it `inf`; the
+  following `np.int64(...)` cast is undefined in both cases. Measured
+  2026-08-24: on x86-64 every weight became `INT64_MIN` and OR-Tools raised a
+  `TypeError` from deep inside pybind11, while on macOS arm64 the same call
+  solved and returned a fit. `_check_X_Y_weights` now requires the weights to
+  be numeric, finite and **strictly positive**, so the rejection is a
+  `ValueError` naming the parameter, on every platform. A zero weight is not a
+  way to drop a scenario — omit the scenario.
+- **`tests/test_documented_values.py` could not run on Windows.** It read the
+  package sources with `Path.read_text()` and no `encoding=`, which uses the
+  locale codec — cp1252 on the GitHub Windows runners — and the docstrings
+  contain typographic quotes (`U+201C`/`U+201D`, as in `Supported trends are
+  “auto”`). All three tests died with `UnicodeDecodeError` before asserting
+  anything. Python source is UTF-8 by PEP 3120 regardless of platform, so the
+  reads now say so.
+
 ### Release automation
 
 - **Releases publish themselves.** Pushing an annotated `vX.Y.Z` tag runs the

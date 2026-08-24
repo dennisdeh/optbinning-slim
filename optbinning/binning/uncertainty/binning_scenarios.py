@@ -175,6 +175,28 @@ def _check_X_Y_weights(X, Y, weights):
                              "coincide; got {} != {}."
                              .format(n_scenarios_x, n_weights))
 
+        # The values, not only the count. These reach the CP model, which
+        # scales them by 10 ** |log10(min(w))|: a negative weight makes that
+        # factor NaN and the subsequent cast to int64 is undefined, so whether
+        # the solver rejected the fit depended on the CPU. Measured 2026-08-24
+        # on CI, weights=[-1., 2.] raised TypeError from OR-Tools on Linux and
+        # Windows x86-64 and solved without error on macOS arm64.
+        w = np.asarray(weights)
+
+        if not np.issubdtype(w.dtype, np.number):
+            raise TypeError("weights must be numeric; got dtype {}."
+                            .format(w.dtype))
+
+        if not np.all(np.isfinite(w)):
+            raise ValueError("weights must be finite; got {}."
+                             .format(weights))
+
+        if np.any(w <= 0):
+            raise ValueError("weights must be strictly positive; got {}. A "
+                             "zero weight is not 'ignore this scenario': it "
+                             "makes the CP model's scale factor infinite. Omit "
+                             "the scenario instead.".format(weights))
+
 
 class SBOptimalBinning(OptimalBinning):
     """Scenario-based stochastic optimal binning of a numerical variable with
@@ -351,7 +373,8 @@ class SBOptimalBinning(OptimalBinning):
             List of target vectors relative to X.
 
         weights : array-like, shape = (n_scenarios,)
-            Scenarios weights. If None, then scenarios are equally weighted.
+            Scenarios weights. Must be numeric, finite and strictly
+            positive. If None, then scenarios are equally weighted.
 
         check_input : bool (default=False)
             Whether to check input arrays.
@@ -382,7 +405,8 @@ class SBOptimalBinning(OptimalBinning):
             List of target vectors relative to X.
 
         weights : array-like, shape = (n_scenarios,)
-            Scenarios weights. If None, then scenarios are equally weighted.
+            Scenarios weights. Must be numeric, finite and strictly
+            positive. If None, then scenarios are equally weighted.
 
         metric : str (default="woe")
             The metric used to transform the input vector. Supported metrics

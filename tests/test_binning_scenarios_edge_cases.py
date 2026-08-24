@@ -188,18 +188,36 @@ def test_weights_accepts_floats_and_arrays():
     assert sboptb.status == "OPTIMAL"
 
 
-def test_weights_unvalidated_values():
-    # _check_X_Y_weights only checks the length; the values are handed
-    # straight to the pre-binner and to OR-Tools, which reject them.
-    with raises((TypeError, ValueError)):
+def test_weights_values_are_validated():
+    # _check_X_Y_weights checks the values, not only the count, and it has to:
+    # the CP model scales the weights by 10 ** |log10(min(w))|, so a negative
+    # weight makes that factor NaN and the following cast to int64 is undefined
+    # behaviour. Leaving the rejection to OR-Tools made it CPU-dependent —
+    # measured on CI 2026-08-24, weights=[-1., 2.] raised a pybind11 TypeError
+    # from the solver on Linux and Windows x86-64 and solved with no error at
+    # all on macOS arm64. Matching the message pins that the rejection happens
+    # in validation, before any solve, on every platform.
+    with raises(ValueError, match="weights must be strictly positive"):
         SBOptimalBinning(max_n_prebins=5).fit([x1, x2], [y1, y2],
                                               weights=[-1., 2.])
 
-    with raises(ValueError):
+    # A single zero is the same defect, not a way to drop a scenario: it makes
+    # the scale factor 10 ** |log10(0)| = inf, and every weight then casts to
+    # INT64_MIN. Measured 2026-08-24, weights=[0., 1.] gave the CP model
+    # [-9223372036854775808, -9223372036854775808].
+    with raises(ValueError, match="weights must be strictly positive"):
+        SBOptimalBinning(max_n_prebins=5).fit([x1, x2], [y1, y2],
+                                              weights=[0., 1.])
+
+    with raises(ValueError, match="weights must be strictly positive"):
         SBOptimalBinning(max_n_prebins=5).fit([x1, x2], [y1, y2],
                                               weights=[0, 0])
 
-    with raises((TypeError, ValueError)):
+    with raises(ValueError, match="weights must be finite"):
+        SBOptimalBinning(max_n_prebins=5).fit([x1, x2], [y1, y2],
+                                              weights=[np.nan, 1.])
+
+    with raises(TypeError, match="weights must be numeric"):
         SBOptimalBinning(max_n_prebins=5).fit([x1, x2], [y1, y2],
                                               weights=["a", "b"])
 

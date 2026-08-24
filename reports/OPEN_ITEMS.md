@@ -76,3 +76,45 @@ bundles HiGHS >= 1.14, or once either wheel adopts a version-qualified SONAME.
 If cvxpy's HIGHS backend is needed in the meantime, the only route is a
 separate process, or `pip install highspy==1.12.0` and living with pip's
 dependency-conflict warning.
+
+## The CP model's weight scaling overflows int64 for extreme weight ratios
+
+*Last updated: 2026-08-24*
+
+`optbinning/binning/cp.py`, in the scenario branch, makes the scenario weights
+integral for CP-SAT with
+
+```python
+sw = 10 ** np.abs(np.log10(np.min(w)))
+w = [np.int64(w[s] * sw) for s in range(n_scenarios)]
+```
+
+The scale factor is chosen to bring the *smallest* weight up to about 1, with
+no regard for what it does to the largest. Once the ratio between the largest
+and smallest weight exceeds roughly 1e18, the product exceeds `int64`'s range
+and the cast is undefined.
+
+Measured 2026-08-24 (numpy 2.5.2, Linux x86-64), for `weights=[min, 1.0]`:
+
+| min | scale factor | largest scaled weight | int64 cast |
+|---|---|---|---|
+| 1e-17 | 1e17 | 1e17 | 100000000000000000 — correct |
+| 1e-18 | 1e18 | 1e18 | 1000000000000000000 — correct |
+| 1e-19 | 1e19 | 1e19 | **-9223372036854775808** |
+| 1e-30 | 1e30 | 1e30 | **-9223372036854775808** |
+
+These weights are numeric, finite and strictly positive, so they pass the
+validation added on 2026-08-24 (see `DECISIONS.md`) and reach the model. The
+non-finite cases — negative and zero weights — are now rejected before this
+point, which is why this is the *remaining* part of the defect rather than the
+whole of it.
+
+Not fixed here because the repair is a change to the CP model's numerics, not
+to validation: the scale factor should be chosen from the *ratio* (and clamped
+so the largest scaled weight fits `int64`), and any change to it moves the
+integer weights the objective is computed from. That needs its own measurement
+of the objective before and after, on a fixture where the weights differ.
+
+**A weight ratio above 1e18 is not a plausible accident**, which is why this is
+filed rather than treated as urgent: it needs weights spanning nineteen orders
+of magnitude.
