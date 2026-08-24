@@ -436,6 +436,7 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         self._binning_table = None
         self._n_refinements = 0
         self._n_prebins = None
+        self._optimizer = None
 
         # streaming stats
         self._n_add = 0
@@ -623,9 +624,12 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
 
         time_postprocessing = time.perf_counter()
 
-        if not len(splits):
-            n_nonevent = np.array([self._t_n_nonevent])
-            n_event = np.array([self._t_n_event])
+        # A single prebin needs no fixing up: pre-binning already returns
+        # that bin's counts, and they exclude the missing, special and others
+        # buckets that bin_info appends as rows of their own. The whole-stream
+        # totals BSketch.n_nonevent / BSketch.n_event do count those buckets
+        # in, so overwriting the single bin with them, as this used to,
+        # counted every such record twice.
 
         self._n_nonevent, self._n_event = bin_info(
             self._solution, n_nonevent, n_event, self._n_nonevent_missing,
@@ -717,9 +721,6 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         self._n_event_missing = self._bsketch._count_missing_e
         self._n_event_special = self._bsketch._count_special_e
 
-        self._t_n_nonevent = self._bsketch.n_nonevent
-        self._t_n_event = self._bsketch.n_event
-
         if self.dtype == "numerical":
             sketch_all = self._bsketch.merge_sketches()
 
@@ -733,6 +734,15 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
 
                 splits = np.array([sketch_all.percentile(p)
                                    for p in percentiles[1:-1]])
+
+            # Same rounding OptimalBinning._prebinning_refinement applies, and
+            # for the same reason: split_digits describes the split points the
+            # user sees, so it has to be applied before the counts are taken.
+            # Rounding can collapse two quantiles onto one value; the empty
+            # prebin that leaves is dropped by _compute_prebins below, which
+            # is why np.unique is not needed here (unlike the 2-D path).
+            if self.split_digits is not None:
+                splits = np.round(splits, self.split_digits)
 
             splits, n_nonevent, n_event = self._compute_prebins(splits)
         else:
@@ -756,6 +766,13 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         self._n_refinements = 0
 
         n_event, n_nonevent = self._bsketch.bins(splits)
+
+        # A single prebin cannot be refined any further: mask_remove[-2] below
+        # needs at least two entries. Same base case as the non-streaming
+        # estimators (OptimalBinning._compute_prebins).
+        if not len(splits):
+            return splits, n_nonevent, n_event
+
         mask_remove = (n_nonevent == 0) | (n_event == 0)
 
         if np.any(mask_remove):
@@ -774,6 +791,12 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
 
     def _compute_cat_prebins(self, splits, categories, n_nonevent, n_event):
         self._n_refinements = 0
+
+        # A single prebin cannot be refined any further: mask_remove[-2] below
+        # needs at least two entries. Same base case as _compute_prebins.
+        if not len(splits):
+            return splits, categories, n_nonevent, n_event
+
         mask_remove = (n_nonevent == 0) | (n_event == 0)
 
         if self.cat_heuristic and len(categories) > self.max_n_prebins:

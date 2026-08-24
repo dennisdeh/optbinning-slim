@@ -17,6 +17,7 @@ from sklearn.base import BaseEstimator
 
 from ...binning.binning_process import _check_selection_criteria
 from ...binning.binning_process import _METRICS
+from ...binning.binning_process import _transform_base_metric
 from ...binning.binning_process import BaseBinningProcess
 from ...exceptions import NotDataAddedError
 from ...logging import Logger
@@ -179,7 +180,12 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
 
     binning_transform_params : dict or None, optional (default=None)
         Dictionary with optimal binning transform options for specific
-        variables. Example ``{"variable_1": {"metric": "event_rate"}}``.
+        variables. Example ``{"variable_1": {"metric": "event_rate"}}``. An
+        option given here applies to that variable only; the transform
+        arguments still apply to every other variable. The transformed array
+        holds a single dtype, so a ``metric`` given here must share it with
+        the transform metric: "bins" (strings) and "indices" (integers)
+        cannot be mixed with the numeric metrics or with each other.
 
     verbose : bool (default=False)
         Enable verbose output.
@@ -494,7 +500,11 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
             are "woe" to choose the Weight of Evidence, "event_rate" to
             choose the event rate, "indices" to assign the corresponding
             indices of the bins and "bins" to assign the corresponding
-            bin interval.
+            bin interval. A per-variable ``metric`` in
+            ``binning_transform_params`` overrides this one, but the output
+            array holds a single dtype: "bins" (strings) and "indices"
+            (integers) cannot be mixed with the numeric metrics or with each
+            other, and doing so raises ``ValueError``.
 
         metric_special : float or str (default=0)
             The metric value to transform special codes in the input vector.
@@ -527,9 +537,10 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
         n_samples, n_variables = X.shape
 
         # Check metric
-        if metric not in ("event_rate", "woe"):
+        if metric not in ("woe", "event_rate", "indices", "bins"):
             raise ValueError('Invalid value for metric. Allowed string '
-                             'values are "event_rate" and "woe".')
+                             'values are "woe", "event_rate", "indices" and '
+                             '"bins".')
 
         mask = self.get_support()
         if not mask.any():
@@ -546,10 +557,15 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
 
         n_selected_variables = len(selected_variables)
 
-        if metric == "indices":
+        # Check whether the per-variable transform metrics are compatible
+        # with each other and with the process transform metric.
+        base_metric = _transform_base_metric(metric, selected_variables,
+                                             self.binning_transform_params)
+
+        if base_metric == "indices":
             X_transform = np.full(
                 (n_samples, n_selected_variables), -1, dtype=int)
-        elif metric == "bins":
+        elif base_metric == "bins":
             X_transform = np.full(
                 (n_samples, n_selected_variables), "", dtype=object)
         else:
@@ -563,21 +579,22 @@ class BinningProcessSketch(BaseSketch, BaseEstimator, BaseBinningProcess):
             if self.binning_transform_params is not None:
                 params = self.binning_transform_params.get(name, {})
 
-            metric_missing = params.get("metric_missing", metric_missing)
-            metric_special = params.get("metric_special", metric_special)
+            # Bound to fresh names: rebinding the arguments would carry one
+            # variable's override on to every variable after it.
+            var_metric = params.get("metric", metric)
+            var_missing = params.get("metric_missing", metric_missing)
+            var_special = params.get("metric_special", metric_special)
 
             tparams = {
                 "x": x,
-                "metric": metric,
-                "metric_special": metric_special,
-                "metric_missing": metric_missing,
+                "metric": var_metric,
+                "metric_special": var_special,
+                "metric_missing": var_missing,
                 "check_input": check_input,
                 "show_digits": show_digits
                 }
 
-            if metric is not None:
-                tparams["metric"] = params.get("metric", metric)
-            else:
+            if var_metric is None:
                 tparams.pop("metric")
 
             X_transform[:, i] = optb.transform(**tparams)

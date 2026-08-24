@@ -30,7 +30,10 @@ def _fun_divergence(fun, n, pi, qi, pi_special, qi_special, pi_missing,
         div_value += fun(pi_special, qi_special, return_sum=True) / n_special
 
     if flag_missing:
-        div_value += fun([pi_missing], [qi_missing])
+        # return_sum keeps the term a scalar, as the two terms above are:
+        # without it the divergence returns a shape-(1,) array and the
+        # float() below raises on numpy >= 1.25. The value is the same.
+        div_value += fun([pi_missing], [qi_missing], return_sum=True)
 
     return float(div_value)
 

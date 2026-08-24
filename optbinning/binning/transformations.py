@@ -196,7 +196,9 @@ def _apply_transform(x, dtype, special_codes, metric, metric_special,
             mask = x_p.isin(bins[i])
             x_transform[mask] = metric_value[i]
 
-    if special_codes:
+    # bool() on an ndarray of more than one code raises; the checker
+    # and the docstrings accept a numpy.ndarray here.
+    if special_codes is not None and len(special_codes):
         if isinstance(special_codes, dict):
             xt = pd.Series(x)
             for i, (k, s) in enumerate(special_codes.items()):

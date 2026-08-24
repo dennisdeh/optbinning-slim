@@ -170,15 +170,9 @@ def target_info_special_continuous(special_codes, x, y, sw):
         n_records_special = []
         sum_special = []
         n_zeros_special = []
-
-        if len(y):
-            std_special = []
-            min_target_special = []
-            max_target_special = []
-        else:
-            std_special = None
-            min_target_special = None
-            max_target_special = None
+        std_special = []
+        min_target_special = []
+        max_target_special = []
 
         xt = pd.Series(x)
         for s in special_codes.values():
@@ -303,7 +297,6 @@ def continuous_bin_info(solution, n_records, sums, ssums, stds, min_target,
     z = []
     min_t = []
     max_t = []
-    min_t
     accum_r = 0
     accum_s = 0
     accum_ss = 0
@@ -509,6 +502,16 @@ class BinningTable:
         Returns
         -------
         binning_table : pandas.DataFrame
+
+        Notes
+        -----
+        A target carrying a single class is degenerate but legal. The event
+        rate is a property of each bin on its own, so it is reported wherever
+        the bin holds records -- 1 for an all-event bin, 0 for an
+        all-non-event one. WoE, IV and JS compare a bin against the rest of
+        the sample and are reported as 0 for any bin missing either class,
+        which on a single-class target is every bin; Gini, KS, Hellinger and
+        Triangular are 0 for the same reason.
         """
         _check_build_parameters(show_digits, add_totals)
 
@@ -519,11 +522,25 @@ class BinningTable:
         t_n_nonevent = n_nonevent.sum()
         t_n_event = n_event.sum()
         t_n_records = t_n_nonevent + t_n_event
-        t_event_rate = t_n_event / t_n_records
 
-        p_records = n_records / t_n_records
-        p_event = n_event / t_n_event
-        p_nonevent = n_nonevent / t_n_nonevent
+        # An empty table has no rate and no shares to report.
+        if t_n_records:
+            t_event_rate = t_n_event / t_n_records
+            p_records = n_records / t_n_records
+        else:
+            t_event_rate = 0.
+            p_records = np.zeros(len(n_records))
+
+        # A single-class target leaves one of the two totals at zero, so both
+        # event distributions would be 0/0. Every bin is pure in that case and
+        # contributes zero divergence through the mask below; the all-zero
+        # distributions are what keep KS finite.
+        if t_n_event and t_n_nonevent:
+            p_event = n_event / t_n_event
+            p_nonevent = n_nonevent / t_n_nonevent
+        else:
+            p_event = np.zeros(len(n_event))
+            p_nonevent = np.zeros(len(n_nonevent))
 
         mask = (n_event > 0) & (n_nonevent > 0)
         event_rate = np.zeros(len(n_records))
@@ -531,10 +548,18 @@ class BinningTable:
         iv = np.zeros(len(n_records))
         js = np.zeros(len(n_records))
 
-        # Compute weight of evidence and event rate
-        event_rate[mask] = n_event[mask] / n_records[mask]
-        constant = np.log(t_n_event / t_n_nonevent)
-        woe[mask] = np.log(1 / event_rate[mask] - 1) + constant
+        # The event rate is a property of the bin on its own, so it is gated
+        # on records: an all-event bin reports 1 and an all-non-event bin 0.
+        # WoE, IV and JS compare the bin against the rest of the sample and
+        # stay gated on `mask` -- they are 0 where either class is absent.
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
+
+        # Compute weight of evidence
+        if mask.any():
+            constant = np.log(t_n_event / t_n_nonevent)
+            woe[mask] = np.log(1 / event_rate[mask] - 1) + constant
 
         # Compute Gini
         self._gini = gini(self.n_event, self.n_nonevent)
@@ -543,16 +568,23 @@ class BinningTable:
         p_ev = p_event[mask]
         p_nev = p_nonevent[mask]
 
-        iv[mask] = jeffrey(p_ev, p_nev, return_sum=False)
-        js[mask] = jensen_shannon(p_ev, p_nev, return_sum=False)
+        # The divergence metrics reject an empty distribution: with no bin
+        # holding both an event and a non-event there is nothing to measure.
+        if mask.any():
+            iv[mask] = jeffrey(p_ev, p_nev, return_sum=False)
+            js[mask] = jensen_shannon(p_ev, p_nev, return_sum=False)
+            self._hellinger = hellinger(p_ev, p_nev, return_sum=True)
+            self._triangular = triangular(p_ev, p_nev, return_sum=True)
+        else:
+            self._hellinger = 0.
+            self._triangular = 0.
+
         t_iv = iv.sum()
         t_js = js.sum()
 
         self._iv_values = iv
         self._iv = t_iv
         self._js = t_js
-        self._hellinger = hellinger(p_ev, p_nev, return_sum=True)
-        self._triangular = triangular(p_ev, p_nev, return_sum=True)
 
         # Compute KS
         self._ks = np.abs(p_event.cumsum() - p_nonevent.cumsum()).max()
@@ -634,7 +666,8 @@ class BinningTable:
 
         show_bin_labels : bool (default=False)
             Whether to show the bin label instead of the bin id on the x-axis.
-            For long labels (length > 27), labels are truncated.
+            For long labels (length > 27), labels are truncated. Only
+            supported when style="bin".
 
             .. versionadded:: 0.15.1
 
@@ -671,7 +704,7 @@ class BinningTable:
 
         if show_bin_labels and style == "actual":
             raise ValueError('show_bin_labels only supported when '
-                             'style="actual".')
+                             'style="bin".')
 
         if figsize is not None:
             if not isinstance(figsize, tuple):
@@ -801,7 +834,8 @@ class BinningTable:
                     bin_str = self._bin_str
 
                 if not add_special:
-                    bin_str = bin_str[:-2] + [bin_str[-1]]
+                    bin_str = (bin_str[:-(self._n_specials + 1)] +
+                               [bin_str[-1]])
 
                 if not add_missing:
                     bin_str = bin_str[:-1]
@@ -930,7 +964,7 @@ class BinningTable:
         n_ev = self.n_event[:n_metric]
 
         if len(n_nev) >= 2:
-            chi2, cramer_v = chi2_cramer_v(n_nev, n_ev)
+            _, cramer_v = chi2_cramer_v(n_nev, n_ev)
         else:
             cramer_v = 0
 
@@ -972,7 +1006,7 @@ class BinningTable:
                                                     self._hhi_norm)
 
         # Monotonic trend
-        type_mono = type_of_monotonic_trend(self._event_rate[:-2])
+        type_mono = type_of_monotonic_trend(self._event_rate[:n_metric])
 
         report = (
             "---------------------------------------------\n"
@@ -1367,7 +1401,8 @@ class MulticlassBinningTable:
         if show_bin_labels:
             bin_str = self._bin_str
             if not add_special:
-                bin_str = bin_str[:-2] + [bin_str[-1]]
+                bin_str = (bin_str[:-(self._n_specials + 1)] +
+                           [bin_str[-1]])
 
             if not add_missing:
                 bin_str = bin_str[:-1]
@@ -1422,7 +1457,7 @@ class MulticlassBinningTable:
 
         n_ev = self.n_event[:n_metric, :]
         if len(n_ev) >= 2:
-            chi2, cramer_v = chi2_cramer_v_multi(n_ev)
+            _, cramer_v = chi2_cramer_v_multi(n_ev)
         else:
             cramer_v = 0
 
@@ -1457,7 +1492,8 @@ class MulticlassBinningTable:
         monotonic_string = ""
 
         for i in range(len(self.classes)):
-            type_mono = type_of_monotonic_trend(self._event_rate[:-2, i])
+            type_mono = type_of_monotonic_trend(
+                self._event_rate[:n_metric, i])
             monotonic_string += mono_string.format(i, type_mono)
 
         report = (
@@ -1725,7 +1761,8 @@ class ContinuousBinningTable:
 
         show_bin_labels : bool (default=False)
             Whether to show the bin label instead of the bin id on the x-axis.
-            For long labels (length > 27), labels are truncated.
+            For long labels (length > 27), labels are truncated. Only
+            supported when style="bin".
 
             .. versionadded:: 0.15.1
 
@@ -1755,7 +1792,7 @@ class ContinuousBinningTable:
 
         if show_bin_labels and style == "actual":
             raise ValueError('show_bin_labels only supported when '
-                             'style="actual".')
+                             'style="bin".')
 
         if figsize is not None:
             if not isinstance(figsize, tuple):
@@ -1881,7 +1918,8 @@ class ContinuousBinningTable:
                     bin_str = self._bin_str
 
                 if not add_special:
-                    bin_str = bin_str[:-2] + [bin_str[-1]]
+                    bin_str = (bin_str[:-(self._n_specials + 1)] +
+                               [bin_str[-1]])
 
                 if not add_missing:
                     bin_str = bin_str[:-1]
@@ -2021,7 +2059,7 @@ class ContinuousBinningTable:
             rwoe, p_values, self._hhi_norm)
 
         # Monotonic trend
-        type_mono = type_of_monotonic_trend(self._mean[:-2])
+        type_mono = type_of_monotonic_trend(self._mean[:n_metric])
 
         report = (
             "-------------------------------------------------\n"

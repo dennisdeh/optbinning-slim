@@ -45,6 +45,29 @@ def print_optional_parameters(dict_default_options, dict_user_options):
     print(str_options)
 
 
+# Stamped on an MPSolver whose Solve() was deliberately skipped -- see
+# BinningMIP.solve. Reading the objective of a solver that was never solved
+# does not raise, it makes OR-Tools log "The model has been changed since the
+# solution was last computed" to stderr once per read, and pywraplp exposes
+# no synchronisation state to ask instead: wall_time() is 0 after a real BOP
+# solve too (measured 2026-08-24), and Iterations() / nodes() / VerifySolution
+# emit the very message they would be asked to avoid.
+_SOLVE_SKIPPED = "_optbinning_solve_skipped"
+
+
+def mark_solve_skipped(solver):
+    """Record on an MPSolver that its ``Solve()`` was deliberately skipped.
+
+    Parameters
+    ----------
+    solver : object
+        An ``ortools.linear_solver.pywraplp.Solver`` holding a built but
+        unsolved model. :func:`solver_statistics` reports a zero objective
+        for it instead of reading one that does not exist.
+    """
+    setattr(solver, _SOLVE_SKIPPED, True)
+
+
 def solver_statistics(solver_type, solver):
     time_optimizer = None
     d_solver = {}
@@ -61,8 +84,15 @@ def solver_statistics(solver_type, solver):
     elif solver_type == "mip":
         d_solver["n_constraints"] = solver.NumConstraints()
         d_solver["n_variables"] = solver.NumVariables()
-        d_solver["objective"] = solver.Objective().Value()
-        d_solver["best_bound"] = solver.Objective().BestBound()
+
+        if getattr(solver, _SOLVE_SKIPPED, False):
+            # No solve, no objective. Reported as zero, which is what the cp
+            # branch above gets from CP-SAT for the same unsolved model.
+            d_solver["objective"] = 0.0
+            d_solver["best_bound"] = 0.0
+        else:
+            d_solver["objective"] = solver.Objective().Value()
+            d_solver["best_bound"] = solver.Objective().BestBound()
 
     elif solver_type == "lp":
         d_solver["n_variables"] = solver.n_variables

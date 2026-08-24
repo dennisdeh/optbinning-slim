@@ -300,6 +300,8 @@ class SBOptimalBinning(OptimalBinning):
 
         # auxiliary
         self._categories = None
+        self._user_splits = None
+        self._user_splits_fixed = None
         self._cat_others = None
         self._n_scenarios = None
         self._n_event = None
@@ -309,8 +311,6 @@ class SBOptimalBinning(OptimalBinning):
         self._n_nonevent_special = None
         self._n_event_special = None
         self._problem_type = "classification"
-        self._user_splits = user_splits
-        self._user_splits_fixed = user_splits_fixed
 
         # info
         self._binning_table = None
@@ -481,6 +481,13 @@ class SBOptimalBinning(OptimalBinning):
 
         _check_parameters(**self.get_params())
 
+        # user_splits and user_splits_fixed are constructor parameters. The
+        # fit reorders and shrinks them, so it works on private copies and
+        # leaves the parameters alone; rewriting them makes a second fit of
+        # the same estimator fail _check_parameters.
+        self._user_splits = self.user_splits
+        self._user_splits_fixed = self.user_splits_fixed
+
         # Pre-processing
         if self.verbose:
             logger.info("Pre-processing started.")
@@ -524,22 +531,36 @@ class SBOptimalBinning(OptimalBinning):
         time_prebinning = time.perf_counter()
 
         if self.user_splits is not None:
-            user_splits = check_array(
-                self.user_splits, ensure_2d=False, dtype=None,
-                ensure_all_finite=True)
+            n_splits = len(self.user_splits)
 
-            if len(set(user_splits)) != len(user_splits):
-                raise ValueError("User splits are not unique.")
+            if self.verbose:
+                logger.info("Pre-binning: user splits supplied: {}"
+                            .format(n_splits))
 
-            sorted_idx = np.argsort(user_splits)
-            user_splits = user_splits[sorted_idx]
+            if not n_splits:
+                # _prebinning_refinement returns the same empty arrays for an
+                # empty split set, and it is the only place the special and
+                # missing counts the post-processing needs are computed.
+                splits, n_nonevent, n_event = self._prebinning_refinement(
+                    np.array([]), x_clean, y_clean, y_missing, y_special)
+            else:
+                user_splits = check_array(
+                    self.user_splits, ensure_2d=False, dtype=None,
+                    ensure_all_finite=True)
 
-            if self.user_splits_fixed is not None:
-                self.user_splits_fixed = np.asarray(
-                    self.user_splits_fixed)[sorted_idx]
+                if len(set(user_splits)) != len(user_splits):
+                    raise ValueError("User splits are not unique.")
 
-            splits, n_nonevent, n_event = self._prebinning_refinement(
-                user_splits, x_clean, y_clean, y_missing, y_special)
+                sorted_idx = np.argsort(user_splits)
+                user_splits = user_splits[sorted_idx]
+                self._user_splits = user_splits
+
+                if self.user_splits_fixed is not None:
+                    self._user_splits_fixed = np.asarray(
+                        self.user_splits_fixed)[sorted_idx]
+
+                splits, n_nonevent, n_event = self._prebinning_refinement(
+                    user_splits, x_clean, y_clean, y_missing, y_special)
         else:
             splits, n_nonevent, n_event = self._fit_prebinning(
                 w, x_clean, y_clean, y_missing, y_special, self.class_weight)
@@ -570,6 +591,17 @@ class SBOptimalBinning(OptimalBinning):
         self._n_nonevent = 0
         self._n_event = 0
         self._binning_tables = []
+
+        # Pre-binning left no split, so the counts came back 1-D empty and
+        # _fit_optimizer returned OPTIMAL without running the solver. The
+        # loop below indexes them per scenario: rebuild the single-bin
+        # counts as the (1, n_scenarios) matrix it expects.
+        if not len(splits):
+            n_nonevent = np.empty((1, self._n_scenarios), dtype=np.int64)
+            n_event = np.empty((1, self._n_scenarios), dtype=np.int64)
+
+            for s in range(self._n_scenarios):
+                n_nonevent[0, s], n_event[0, s] = target_info(y_clean[s])
 
         min_x = np.inf
         max_x = -np.inf
@@ -701,7 +733,7 @@ class SBOptimalBinning(OptimalBinning):
             mask_splits = np.concatenate(
                 [mask_remove[:-2], [mask_remove[-2] | mask_remove[-1]]])
 
-            if self.user_splits_fixed is not None:
+            if self._user_splits_fixed is not None:
                 user_splits_fixed = np.asarray(self._user_splits_fixed)
                 user_splits = np.asarray(self._user_splits)
                 fixed_remove = user_splits_fixed & mask_splits
@@ -760,7 +792,7 @@ class SBOptimalBinning(OptimalBinning):
                               self.max_n_bins, min_bin_size, max_bin_size,
                               None, None, None, None, self.min_event_rate_diff,
                               self.max_pvalue, self.max_pvalue_policy, None,
-                              self.user_splits_fixed, self.time_limit)
+                              self._user_splits_fixed, self.time_limit)
         if weights is None:
             weights = np.ones(self._n_scenarios, int)
 

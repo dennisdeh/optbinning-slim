@@ -144,6 +144,14 @@ def _compute_scorecard_points(points, binning_tables, method, method_data,
         smin = intercept + min_p
         smax = intercept + max_p
 
+        if smax == smin:
+            raise ValueError(
+                'scaling_method "min_max" requires a scorecard with a '
+                "non-degenerate score range; every selected variable "
+                "resolves to a single point value, so the unscaled score is "
+                "constant ({}). Use scaling_method \"pdo_odds\" or "
+                "scaling_method=None.".format(smin))
+
         slope = sense * (a - b) / (smax - smin)
         if reverse_scorecard:
             shift = a - slope * smin
@@ -191,7 +199,10 @@ class Scorecard(Base, BaseEstimator):
     scaling_method : str or None (default=None)
         The scaling method to control the range of the scores. Supported
         methods are "pdo_odds" and "min_max". Method "pdo_odds" is only
-        applicable for binary classification. If None, no scaling is applied.
+        applicable for binary classification. Method "min_max" requires the
+        unscaled scorecard to have a non-zero score range; fitting a scorecard
+        whose selected variables each resolve to a single point value raises
+        a ``ValueError``. If None, no scaling is applied.
 
     scaling_method_params : dict or None (default=None)
         Dictionary with scaling method parameters. If
@@ -451,7 +462,7 @@ class Scorecard(Base, BaseEstimator):
             columns = main_columns + rest_columns
 
         return self._df_scorecard[columns]
-    
+
     def transform(self, X):
         """Transform the dataset in to scores.
 
@@ -496,7 +507,7 @@ class Scorecard(Base, BaseEstimator):
         selected_variables = self.binning_process_.get_support(names=True)
         score_ = {
             feature: (
-                self._df_scorecard[self._df_scorecard.Variable==feature]
+                self._df_scorecard[self._df_scorecard.Variable == feature]
                 .Points
                 .values[X_t[feature]]
             ) for feature in selected_variables

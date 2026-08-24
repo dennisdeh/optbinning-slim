@@ -27,6 +27,7 @@ from .binning import OptimalBinning
 from .binning_process_information import print_binning_process_information
 from .continuous_binning import ContinuousOptimalBinning
 from .multiclass_binning import MulticlassOptimalBinning
+from .multidimensional.binning_2d import OptimalBinning2D
 from .piecewise.binning import OptimalPWBinning
 from .piecewise.continuous_binning import ContinuousOptimalPWBinning
 
@@ -60,6 +61,53 @@ _OPTB_TYPES = (OptimalBinning, ContinuousOptimalBinning,
 
 
 _OPTBPW_TYPES = (OptimalPWBinning, ContinuousOptimalPWBinning)
+
+
+# OptimalBinning2D subclasses OptimalBinning and ContinuousOptimalBinning2D
+# subclasses OptimalBinning2D, so both satisfy an isinstance test against the
+# one-dimensional classes. A binning process bins one column per variable and
+# reads optb.dtype, which no 2D estimator has.
+_OPTB_2D_TYPES = (OptimalBinning2D,)
+
+
+def _transform_base_metric(metric, names, binning_transform_params):
+    """Reconcile the transform metric with its per-variable overrides.
+
+    The transformed array is allocated once, from a single dtype, while every
+    variable is transformed with its own
+    ``binning_transform_params[name]["metric"]``. Metrics of different dtypes
+    therefore cannot be mixed: "bins" yields strings, "indices" integers and
+    every other metric floats, and numpy coerces the odd one out rather than
+    complaining -- WoE written into an integer array is silently truncated.
+
+    Returns the metric the output array must be built from: the single metric
+    they all agree on, or ``metric`` when they differ only among the numeric
+    ones.
+    """
+    if binning_transform_params is None:
+        return metric
+
+    metrics = set()
+
+    if metric is not None:
+        metrics.add(metric)
+
+    for name in names:
+        params = binning_transform_params.get(name, {})
+        metrics.add(params.get("metric", metric))
+
+    if len(metrics) == 1:
+        return metrics.pop()
+
+    if "bins" in metrics:
+        raise ValueError(
+            "metric 'bins' cannot be mixed with numeric metrics.")
+
+    if "indices" in metrics:
+        raise ValueError(
+            "metric 'indices' cannot be mixed with other metrics.")
+
+    return metric
 
 
 def _read_column(input_path, extension, column, **kwargs):
@@ -184,7 +232,7 @@ def _check_selection_criteria(selection_criteria, target_dtype):
                 if value not in ("highest", "lowest"):
                     raise ValueError('strategy value for metric {} must be '
                                      '"highest" or "lowest"; got {}.'
-                                     .format(value, metric))
+                                     .format(metric, value))
             elif key == "top":
                 if isinstance(value, numbers.Integral):
                     if value < 1:
@@ -267,6 +315,11 @@ def _check_parameters(variable_names, max_n_prebins, min_prebin_size,
         if not isinstance(fixed_variables, (np.ndarray, list)):
             raise TypeError("fixed_variables must be a list or numpy.ndarray.")
 
+        for fv in fixed_variables:
+            if fv not in list(variable_names):
+                raise ValueError("Variable {} to be fixed is not a valid "
+                                 "variable name.".format(fv))
+
     if categorical_variables is not None:
         if not isinstance(categorical_variables, (np.ndarray, list)):
             raise TypeError("categorical_variables must be a list or "
@@ -316,6 +369,11 @@ def _check_variable_dtype(x):
 
 
 class BaseBinningProcess:
+    # Subclasses exposing a fixed_variables parameter bind it in their
+    # __init__; BinningProcessSketch has no such parameter and inherits this
+    # default. _support_selection_criteria reads it unconditionally.
+    fixed_variables = None
+
     @classmethod
     def load(cls, path):
         """Load binning process from pickle file.
@@ -391,7 +449,8 @@ class BaseBinningProcess:
                     support[indices_valid[mask]] = True
                     self._support &= support
 
-        # Fixed variables
+        # Fixed variables. Declared on BaseBinningProcess, so a subclass
+        # without the parameter -- BinningProcessSketch -- reads None here.
         if self.fixed_variables is not None:
             for fv in self.fixed_variables:
                 idfv = list(self.variable_names).index(fv)
@@ -487,7 +546,8 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
 
     fixed_variables : array-like or None
         List of variables to be fixed. The binning process will retain these
-        variables if the selection criteria is not satisfied.
+        variables if the selection criteria is not satisfied. Each entry must
+        be a name in ``variable_names``.
 
         .. versionadded:: 0.12.1
 
@@ -511,7 +571,12 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
 
     binning_transform_params : dict or None, optional (default=None)
         Dictionary with optimal binning transform options for specific
-        variables. Example ``{"variable_1": {"metric": "event_rate"}}``.
+        variables. Example ``{"variable_1": {"metric": "event_rate"}}``. An
+        option given here applies to that variable only; the transform
+        arguments still apply to every other variable. The transformed array
+        holds a single dtype, so a ``metric`` given here must share it with
+        the transform metric: "bins" (strings) and "indices" (integers)
+        cannot be mixed with the numeric metrics or with each other.
 
     n_jobs : int or None, optional (default=None)
         Number of cores to run in parallel while binning variables.
@@ -668,7 +733,9 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
         ----------
         dict_optb : dict
             Dictionary with OptimalBinning objects for binary, continuous
-            or multiclass target. All objects must share the same class.
+            or multiclass target. All objects must share the same class. The
+            two-dimensional estimators are not accepted: they bin a pair of
+            variables, not a column of ``X``.
 
         Returns
         -------
@@ -972,7 +1039,15 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             The variable name.
 
         optb : object
-            The optimal binning object already fitted.
+            The optimal binning object already fitted. Its class must match
+            the target dtype the binning process was fitted with: a binary
+            target accepts ``OptimalBinning`` and ``OptimalPWBinning``, a
+            continuous target ``ContinuousOptimalBinning`` and
+            ``ContinuousOptimalPWBinning``, and a multiclass target
+            ``MulticlassOptimalBinning``. The two-dimensional estimators
+            ``OptimalBinning2D`` and ``ContinuousOptimalBinning2D`` bin a
+            pair of variables and are rejected, although they subclass
+            ``OptimalBinning``.
         """
         self._check_is_fitted()
 
@@ -985,14 +1060,20 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
 
         optb_types = _OPTB_TYPES + _OPTBPW_TYPES
 
-        if not isinstance(optb, optb_types):
+        if (not isinstance(optb, optb_types)
+                or isinstance(optb, _OPTB_2D_TYPES)):
             raise TypeError("Object {} must be of type ({}); got {}"
                             .format(name, optb_types, type(optb)))
 
-        # Check current class
+        # Check current class. ContinuousOptimalBinning and
+        # MulticlassOptimalBinning subclass OptimalBinning, so testing
+        # isinstance against the base alone would accept them.
         if self._target_dtype == "binary":
             optb_binary = (OptimalBinning, OptimalPWBinning)
-            if not isinstance(optb, optb_binary):
+            optb_not_binary = (ContinuousOptimalBinning,
+                               MulticlassOptimalBinning)
+            if (not isinstance(optb, optb_binary)
+                    or isinstance(optb, optb_not_binary)):
                 raise TypeError("target is binary and Object {} must be of "
                                 "type {}.".format(optb, optb_binary))
         elif self._target_dtype == "continuous":
@@ -1224,12 +1305,6 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             _check_selection_criteria(self.selection_criteria,
                                       self._target_dtype)
 
-        if self.fixed_variables is not None:
-            for fv in self.fixed_variables:
-                if fv not in self.variable_names:
-                    raise ValueError("Variable {} to be fixed is not a valid "
-                                     "variable name.".format(fv))
-
         self._n_samples = len(y)
         self._n_variables = len(self.variable_names)
 
@@ -1294,7 +1369,8 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             if not isinstance(name, str):
                 raise TypeError("Object key must be a string.")
 
-            if not isinstance(optb, optb_types):
+            if (not isinstance(optb, optb_types)
+                    or isinstance(optb, _OPTB_2D_TYPES)):
                 raise TypeError("Object {} must be of type ({}); got {}"
                                 .format(name, optb_types, type(optb)))
 
@@ -1385,30 +1461,12 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
         indices_selected_variables = self.get_support(indices=True)
         n_selected_variables = len(indices_selected_variables)
 
-        # Check if specific binning transform metrics were supplied, and
-        # whether these are compatible. Default base metric is the binning
-        # process transform metric.
-        base_metric = metric
-
-        if self.binning_transform_params is not None:
-            metrics = set()
-
-            if metric is not None:
-                metrics.add(metric)
-
-            for idx in indices_selected_variables:
-                name = self.variable_names[idx]
-                params = self.binning_transform_params.get(name, {})
-                metrics.add(params.get("metric", metric))
-
-            if len(metrics) > 1:
-                # indices and default transform metrics are numeric. If bins
-                # metrics is present the dtypes are incompatible.
-                if "bins" in metrics:
-                    raise ValueError(
-                        "metric 'bins' cannot be mixed with numeric metrics.")
-            else:
-                base_metric = metrics.pop()
+        # Check whether the per-variable transform metrics are compatible
+        # with each other and with the process transform metric.
+        base_metric = _transform_base_metric(
+            metric, [self.variable_names[idx]
+                     for idx in indices_selected_variables],
+            self.binning_transform_params)
 
         if base_metric == "indices":
             X_transform = np.full(
@@ -1432,15 +1490,17 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             if self.binning_transform_params is not None:
                 params = self.binning_transform_params.get(name, {})
 
-            metric = params.get("metric", metric)
-            metric_missing = params.get("metric_missing", metric_missing)
-            metric_special = params.get("metric_special", metric_special)
+            # Bound to fresh names: rebinding the arguments would carry one
+            # variable's override on to every variable after it.
+            var_metric = params.get("metric", metric)
+            var_missing = params.get("metric_missing", metric_missing)
+            var_special = params.get("metric_special", metric_special)
 
             tparams = {
                 "x": x,
-                "metric": metric,
-                "metric_special": metric_special,
-                "metric_missing": metric_missing,
+                "metric": var_metric,
+                "metric_special": var_special,
+                "metric_missing": var_missing,
                 "check_input": check_input,
                 "show_digits": show_digits
                 }
@@ -1448,7 +1508,7 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             if isinstance(optb, _OPTBPW_TYPES):
                 tparams.pop("show_digits")
 
-            if metric is None:
+            if var_metric is None:
                 tparams.pop("metric")
 
             X_transform[:, i] = optb.transform(**tparams)
@@ -1484,29 +1544,10 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
         selected_variables = self.get_support(names=True)
         n_selected_variables = len(selected_variables)
 
-        # Check if specific binning transform metrics were supplied, and
-        # whether these are compatible. Default base metric is the binning
-        # process transform metric.
-        base_metric = metric
-
-        if self.binning_transform_params is not None:
-            metrics = set()
-
-            if metric is not None:
-                metrics.add(metric)
-
-            for name in selected_variables:
-                params = self.binning_transform_params.get(name, {})
-                metrics.add(params.get("metric", metric))
-
-            if len(metrics) > 1:
-                # indices and default transform metrics are numeric. If bins
-                # metrics is present the dtypes are incompatible.
-                if "bins" in metrics:
-                    raise ValueError(
-                        "metric 'bins' cannot be mixed with numeric metrics.")
-            else:
-                base_metric = metrics.pop()
+        # Check whether the per-variable transform metrics are compatible
+        # with each other and with the process transform metric.
+        base_metric = _transform_base_metric(metric, selected_variables,
+                                             self.binning_transform_params)
 
         chunks = pd.read_csv(input_path, engine='c', chunksize=chunksize,
                              usecols=selected_variables, **kwargs)
@@ -1530,22 +1571,25 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
                 if self.binning_transform_params is not None:
                     params = self.binning_transform_params.get(name, {})
 
-                metric = params.get("metric", metric)
-                metric_missing = params.get("metric_missing", metric_missing)
-                metric_special = params.get("metric_special", metric_special)
+                # Bound to fresh names: rebinding the arguments would
+                # carry one variable's override on to every variable after
+                # it, and on to every later chunk.
+                var_metric = params.get("metric", metric)
+                var_missing = params.get("metric_missing", metric_missing)
+                var_special = params.get("metric_special", metric_special)
 
                 tparams = {
                     "x": chunk[name],
-                    "metric": metric,
-                    "metric_special": metric_special,
-                    "metric_missing": metric_missing,
+                    "metric": var_metric,
+                    "metric_special": var_special,
+                    "metric_missing": var_missing,
                     "show_digits": show_digits
                     }
 
                 if isinstance(optb, _OPTBPW_TYPES):
                     tparams.pop("show_digits")
 
-                if metric is None:
+                if var_metric is None:
                     tparams.pop("metric")
 
                 X_transform[:, i] = optb.transform(**tparams)

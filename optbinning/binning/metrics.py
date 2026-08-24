@@ -53,6 +53,12 @@ def gini(event, nonevent):
     Returns
     -------
     gini : float
+
+    Notes
+    -----
+    Bins holding no record are dropped. A table left with fewer than two
+    bins, or one whose target carries a single class, has no pair of
+    observations to rank and returns 0.
     """
     event, nonevent = _check_x_y(event, nonevent)
 
@@ -63,19 +69,25 @@ def gini(event, nonevent):
     n = len(event)
     if n <= 1:
         return 0
-    else:
-        te = event.sum()
-        tne = nonevent.sum()
 
-        ner = nonevent / (event + nonevent)
-        idx = np.argsort(ner)
-        ev = event[idx]
-        ne = nonevent[idx]
+    te = event.sum()
+    tne = nonevent.sum()
 
-        s = np.zeros(n)
-        s[1:] = 2.0 * ne[:-1].cumsum()
+    # A single-class table has no event/non-event pair to rank, so the
+    # normalising area te * tne is zero. The n <= 1 branch above already
+    # answers 0 for that same degeneracy; dividing here would answer nan.
+    if not te or not tne:
+        return 0
 
-        return 1.0 - np.dot(ev, ne + s) / (te * tne)
+    ner = nonevent / (event + nonevent)
+    idx = np.argsort(ner)
+    ev = event[idx]
+    ne = nonevent[idx]
+
+    s = np.zeros(n)
+    s[1:] = 2.0 * ne[:-1].cumsum()
+
+    return 1.0 - np.dot(ev, ne + s) / (te * tne)
 
 
 def kullback_leibler(x, y, return_sum=False):
@@ -173,10 +185,11 @@ def jensen_shannon_multivariate(X, weights=None):
     -------
     jensen_shannon : float
     """
+    X = np.asarray(X)
+
     if X.ndim < 2:
         raise ValueError("X must be a 2-D array")
 
-    X = np.asarray(X)
     n = X.shape[1]
 
     if weights is not None:

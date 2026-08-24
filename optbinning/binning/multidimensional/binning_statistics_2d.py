@@ -236,8 +236,21 @@ class BinningTable2D(BinningTable):
         t_event_rate = t_n_event / t_n_records
 
         p_records = n_records / t_n_records
-        p_event = n_event / t_n_event
-        p_nonevent = n_nonevent / t_n_nonevent
+
+        # A single-class target leaves one of the two totals at zero, so both
+        # event distributions, the WoE constant and the WoE matrix would be
+        # 0/0. Every rectangle is pure in that case and carries zero WoE and
+        # zero divergence; the all-zero distributions are what keep KS finite.
+        if t_n_event and t_n_nonevent:
+            p_event = n_event / t_n_event
+            p_nonevent = n_nonevent / t_n_nonevent
+            constant = np.log(t_n_event / t_n_nonevent)
+            W = np.log(1 / self.D - 1) + constant
+        else:
+            p_event = np.zeros(len(n_event))
+            p_nonevent = np.zeros(len(n_nonevent))
+            constant = 0.
+            W = np.zeros_like(self.D)
 
         mask = (n_event > 0) & (n_nonevent > 0)
         event_rate = np.zeros(len(n_records))
@@ -245,11 +258,14 @@ class BinningTable2D(BinningTable):
         iv = np.zeros(len(n_records))
         js = np.zeros(len(n_records))
 
-        # Compute weight of evidence and event rate
-        event_rate[mask] = n_event[mask] / n_records[mask]
-        constant = np.log(t_n_event / t_n_nonevent)
+        # The event rate is gated on records, not on mixedness: a rectangle
+        # holding only events has an event rate of one, not of zero.
+        mask_records = n_records > 0
+        event_rate[mask_records] = (n_event[mask_records] /
+                                    n_records[mask_records])
+
+        # Compute weight of evidence
         woe[mask] = np.log(1 / event_rate[mask] - 1) + constant
-        W = np.log(1 / self.D - 1) + constant
 
         # Compute Gini
         self._gini = gini(self.n_event, self.n_nonevent)
@@ -258,15 +274,23 @@ class BinningTable2D(BinningTable):
         p_ev = p_event[mask]
         p_nev = p_nonevent[mask]
 
-        iv[mask] = jeffrey(p_ev, p_nev, return_sum=False)
-        js[mask] = jensen_shannon(p_ev, p_nev, return_sum=False)
+        # The divergence metrics reject an empty distribution: with no
+        # rectangle holding both an event and a non-event there is nothing to
+        # measure.
+        if mask.any():
+            iv[mask] = jeffrey(p_ev, p_nev, return_sum=False)
+            js[mask] = jensen_shannon(p_ev, p_nev, return_sum=False)
+            self._hellinger = hellinger(p_ev, p_nev, return_sum=True)
+            self._triangular = triangular(p_ev, p_nev, return_sum=True)
+        else:
+            self._hellinger = 0.
+            self._triangular = 0.
+
         t_iv = iv.sum()
         t_js = js.sum()
 
         self._iv = t_iv
         self._js = t_js
-        self._hellinger = hellinger(p_ev, p_nev, return_sum=True)
-        self._triangular = triangular(p_ev, p_nev, return_sum=True)
 
         # Keep data for plotting
         self._n_records = n_records
@@ -482,6 +506,8 @@ class BinningTable2D(BinningTable):
         `scipy.stats.fisher_exact <https://docs.scipy.org/doc/scipy/reference/
         generated/scipy.stats.fisher_exact.html>`_.
         """
+        _check_is_built(self)
+
         # Pairs
         pairs = get_pairs(self._paths_x, self._paths_y)
 
@@ -851,6 +877,8 @@ class ContinuousBinningTable2D(ContinuousBinningTable):
         the total target mean, :math:`r_i` is the number of records for each
         bin, and :math:`r_T` is the total number of records.
         """
+        _check_is_built(self)
+
         # Pairs
         pairs = get_pairs(self._paths_x, self._paths_y)
 

@@ -87,7 +87,10 @@ def _apply_transform(dtype_x, dtype_y, splits_x, splits_y, special_codes_x,
 
     z_transform[clean_mask] = z_clean_transform
 
-    if special_codes_x or special_codes_y:
+    # bool() on an ndarray of more than one code raises; the checker
+    # and the docstrings accept a numpy.ndarray here.
+    if ((special_codes_x is not None and len(special_codes_x)) or
+            (special_codes_y is not None and len(special_codes_y))):
         if (metric_special == "empirical" or
             (metric == "indices" and not isinstance(metric_special, int)) or
                 metric == "bins"):

@@ -270,9 +270,13 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
         the data values that must be treated separately.
 
     split_digits : int or None, optional (default=None)
-        The significant digits of the split points. If ``split_digits`` is set
-        to 0, the split points are integers. If None, then all significant
-        digits in the split points are considered.
+        The significant digits of the split points of a **numerical** axis. If
+        ``split_digits`` is set to 0, the split points are integers. If None,
+        then all significant digits in the split points are considered. Split
+        points that round onto the same value are merged into one. A
+        categorical axis is pre-binned on the ordinal encoding of its
+        categories, where rounding would regroup categories rather than
+        shorten a split value, so it is left alone.
 
     n_jobs : int or None, optional (default=None)
         Number of cores to run in parallel while binning variables.
@@ -562,7 +566,11 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
             n_splits_x = len(splits_x)
             n_splits_y = len(splits_y)
 
-            clf_nodes = n_splits_x * n_splits_y
+            # The tree partitions the (n_splits_x + 1) x (n_splits_y + 1)
+            # grid, so an axis the pre-binning left unsplit zeroes the
+            # product and sklearn rejects max_leaf_nodes=0. Two is the
+            # smallest bound that still describes a partition.
+            clf_nodes = max(n_splits_x * n_splits_y, 2)
 
             indices_x = np.digitize(x_clean, splits_x, right=False)
             n_bins_x = n_splits_x + 1
@@ -623,7 +631,15 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
         D = np.empty(m * n, dtype=float)
         P = np.empty(m * n, dtype=int)
 
-        selected_rows = np.array(rows, dtype=object)[self._solution]
+        # One entry per rectangle, each a list of flat grid-cell indices.
+        # np.array(rows, dtype=object) gives that only while rows is ragged:
+        # with every rectangle the same size it builds a rectangular 2-D
+        # object array, and the P[r] / D[r] indexing below raises IndexError.
+        all_rows = np.empty(len(rows), dtype=object)
+        for i, r in enumerate(rows):
+            all_rows[i] = r
+
+        selected_rows = all_rows[self._solution]
 
         self._selected_rows = selected_rows
         self._m, self._n = m, n
@@ -720,7 +736,10 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
         indices_y = np.digitize(y_clean, splits_y, right=False)
         n_bins_y = n_splits_y + 1
 
-        R = np.empty((n_bins_y, n_bins_x), dtype=float)
+        # Record counts, so int like the binary estimator's E / NE: with
+        # gamma set, Binning2DCP multiplies n_records into a CP-SAT linear
+        # constraint, which rejects float coefficients.
+        R = np.empty((n_bins_y, n_bins_x), dtype=int)
         S = np.empty((n_bins_y, n_bins_x), dtype=float)
         SS = np.empty((n_bins_y, n_bins_x), dtype=float)
 
@@ -772,7 +791,7 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
                     "Optimizer: monotonic trend y not set.")
             else:
                 logger.info("Optimizer: monotonic trend y set to {}."
-                            .format(self.monotonic_trend_x))
+                            .format(self.monotonic_trend_y))
 
         if self.solver == "cp":
             scale = int(1e6)
@@ -795,7 +814,11 @@ class ContinuousOptimalBinning2D(OptimalBinning2D):
 
         time_model_data = time.perf_counter()
 
-        if self.strategy == "cart":
+        # strategy="cart" has no partition to describe on a grid of a single
+        # cell: the tree carries no split, and get_rectangles then walks a
+        # parent node that is not there. The cart partition of one cell is
+        # that cell, which is what the grid formulation returns.
+        if self.strategy == "cart" and R.size > 1:
             [n_grid, n_rectangles, rows, cols, c, d_connected_x, d_connected_y,
              mean, n_records, sums, stds] = continuous_model_data_cart(
                 self._clf, R, S, SS, self.monotonic_trend_x,

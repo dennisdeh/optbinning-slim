@@ -47,7 +47,10 @@ class MulticlassBinningCP(BinningCP):
             self.min_event_rate_diff, M)
 
         n = len(n_nonevent)
-        n_records = n_nonevent + n_event
+        # n_nonevent / n_event are (n_prebins, n_classes); every column of
+        # their sum is the same per-prebin record count, and the inherited
+        # add_constraint_min_max_bin_size wants one scalar per prebin.
+        n_records = n_nonevent[:, 0] + n_event[:, 0]
         n_classes = len(self.monotonic_trend)
 
         # Initialize model
@@ -81,8 +84,14 @@ class MulticlassBinningCP(BinningCP):
             if self.monotonic_trend[c] == "ascending":
                 self.add_constraint_monotonic_ascending(model, n, D[c], x, M)
 
-            if self.monotonic_trend[c] == "descending":
+            elif self.monotonic_trend[c] == "descending":
                 self.add_constraint_monotonic_descending(model, n, D[c], x, M)
+
+            elif self.monotonic_trend[c] == "concave":
+                self.add_constraint_monotonic_concave(model, n, D[c], x, M)
+
+            elif self.monotonic_trend[c] == "convex":
+                self.add_constraint_monotonic_convex(model, n, D[c], x, M)
 
             elif self.monotonic_trend[c] in ("peak", "valley"):
                 for i in range(n):
@@ -96,11 +105,11 @@ class MulticlassBinningCP(BinningCP):
                     self.add_constraint_monotonic_valley(
                         model, n, D[c], x, c, y, M)
 
-            elif self.monotonic_trend == "peak_heuristic":
+            elif self.monotonic_trend[c] == "peak_heuristic":
                 self.add_constraint_monotonic_peak_heuristic(
                     model, n, D[c], x, trend_changes[c], M)
 
-            elif self.monotonic_trend == "valley_heuristic":
+            elif self.monotonic_trend[c] == "valley_heuristic":
                 self.add_constraint_monotonic_valley_heuristic(
                     model, n, D[c], x, trend_changes[c], M)
 

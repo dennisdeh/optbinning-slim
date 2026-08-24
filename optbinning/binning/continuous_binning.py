@@ -373,6 +373,8 @@ class ContinuousOptimalBinning(OptimalBinning):
 
         # auxiliary
         self._categories = None
+        self._user_splits = None
+        self._user_splits_fixed = None
         self._cat_others = None
         self._n_records = None
         self._sums = None
@@ -560,6 +562,13 @@ class ContinuousOptimalBinning(OptimalBinning):
 
         _check_parameters(**self.get_params())
 
+        # user_splits and user_splits_fixed are constructor parameters. The
+        # fit reorders and shrinks them, so it works on private copies and
+        # leaves the parameters alone; rewriting them makes a second fit of
+        # the same estimator fail _check_parameters.
+        self._user_splits = self.user_splits
+        self._user_splits_fixed = self.user_splits_fixed
+
         # Pre-processing
         if self.verbose:
             logger.info("Pre-processing started.")
@@ -636,10 +645,14 @@ class ContinuousOptimalBinning(OptimalBinning):
                             .format(n_splits))
 
             if not n_splits:
-                splits = self.user_splits
-                n_records = np.array([])
-                sums = np.array([])
-                stds = np.array([])
+                # _prebinning_refinement returns the same empty arrays for an
+                # empty split set, and it is the only place the special,
+                # missing and others aggregates are computed.
+                [splits, n_records, sums, ssums, stds, min_t, max_t,
+                 n_zeros] = self._prebinning_refinement(
+                    np.array([]), x_clean, y_clean, y_missing, x_special,
+                    y_special, y_others, sw_clean, sw_missing, sw_special,
+                    sw_others)
             else:
                 if self.dtype == "numerical":
                     user_splits = check_array(
@@ -657,8 +670,15 @@ class ContinuousOptimalBinning(OptimalBinning):
                      ] = preprocessing_user_splits_categorical(
                         self.user_splits, x_clean, y_clean, sw_clean)
 
+                if self.dtype == "numerical":
+                    self._user_splits = user_splits
+                else:
+                    # categories holds the same groups as user_splits, in
+                    # the order preprocessing sorted them into.
+                    self._user_splits = categories
+
                 if self.user_splits_fixed is not None:
-                    self.user_splits_fixed = np.asarray(
+                    self._user_splits_fixed = np.asarray(
                         self.user_splits_fixed)[sorted_idx]
 
                 [splits, n_records, sums, ssums, stds, min_t, max_t,
@@ -758,7 +778,14 @@ class ContinuousOptimalBinning(OptimalBinning):
         if len(n_records) <= 1:
             self._status = "OPTIMAL"
             self._splits_optimal = splits
-            self._solution = np.zeros(len(splits)).astype(bool)
+            # In the categorical user_splits layout every prebin is a split
+            # (n_bins == n_splits), so the single surviving bin has to be
+            # selected. Everywhere else n_bins == n_splits + 1, so this
+            # branch is only reachable with no splits at all.
+            if self.dtype == "categorical" and self.user_splits is not None:
+                self._solution = np.ones(len(splits)).astype(bool)
+            else:
+                self._solution = np.zeros(len(splits)).astype(bool)
 
             if self.verbose:
                 logger.warning("Optimizer: {} bins after pre-binning."
@@ -826,7 +853,7 @@ class ContinuousOptimalBinning(OptimalBinning):
                                         max_bin_size, self.min_mean_diff,
                                         self.max_pvalue,
                                         self.max_pvalue_policy, self.gamma,
-                                        self.user_splits_fixed,
+                                        self._user_splits_fixed,
                                         self.time_limit)
 
         if self.verbose:
@@ -879,7 +906,6 @@ class ContinuousOptimalBinning(OptimalBinning):
 
         if len(y_others):
             if len(sw_others):
-                print(y_others.dtype, sw_others.dtype)
                 y_others = y_others * sw_others
 
             self._n_records_cat_others = np.sum(sw_others)
@@ -951,9 +977,9 @@ class ContinuousOptimalBinning(OptimalBinning):
                 mask_splits = np.concatenate([
                     mask_remove[:-2], [mask_remove[-2] | mask_remove[-1]]])
 
-            if self.user_splits_fixed is not None:
-                user_splits_fixed = np.asarray(self.user_splits_fixed)
-                user_splits = np.asarray(self.user_splits)
+            if self._user_splits_fixed is not None:
+                user_splits_fixed = np.asarray(self._user_splits_fixed)
+                user_splits = np.asarray(self._user_splits)
                 fixed_remove = user_splits_fixed & mask_splits
 
                 if any(fixed_remove):
@@ -964,8 +990,8 @@ class ContinuousOptimalBinning(OptimalBinning):
                         .format(user_splits[fixed_remove]))
 
                 # Update boolean array of fixed user splits.
-                self.user_splits_fixed = user_splits_fixed[~mask_splits]
-                self.user_splits = user_splits[~mask_splits]
+                self._user_splits_fixed = user_splits_fixed[~mask_splits]
+                self._user_splits = user_splits[~mask_splits]
 
             splits = splits_prebinning[~mask_splits]
             if self.verbose:

@@ -249,9 +249,9 @@ def split_data(dtype, x, y, special_codes=None, cat_cutoff=None,
             sw_clean = sw_clean[~mask_outlier]
 
         if fix_lb is not None or fix_ub is not None:
-            if fix_lb is not None:
+            if fix_ub is None:
                 mask = x_clean >= fix_lb
-            elif fix_ub is not None:
+            elif fix_lb is None:
                 mask = x_clean <= fix_ub
             else:
                 mask = (x_clean >= fix_lb) & (x_clean <= fix_ub)

@@ -9,6 +9,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
+from ...information import mark_solve_skipped
 from .utils import logistic_pw
 
 
@@ -188,9 +189,25 @@ class CFMIP:
                     pre_objs[name] = self._objectives[name].solution_value()
 
     def solve(self):
-        self.solver_.SetTimeLimit(self.time_limit * 1000)
+        # See BinningMIP.solve: MPSolver.SetTimeLimit takes int64
+        # milliseconds and reads 0 as "no limit", whereas time_limit is a
+        # number of seconds. Round to the nearest millisecond so a
+        # fractional limit is honoured instead of raising a SWIG TypeError.
+        # Counterfactual.generate rejects time_limit <= 0 but not 0.0004,
+        # which is no budget at all and must not become an unbounded run.
+        # The thread count is not part of the budget and is set either way.
+        time_limit_ms = int(round(self.time_limit * 1000))
+
         self.solver_.SetNumThreads(self.n_jobs)
-        status = self.solver_.Solve()
+
+        if time_limit_ms > 0:
+            self.solver_.SetTimeLimit(time_limit_ms)
+            status = self.solver_.Solve()
+        else:
+            # The model is left built but unsolved, and information
+            # .solver_statistics is asked for its objective either way.
+            mark_solve_skipped(self.solver_)
+            status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:
@@ -198,10 +215,19 @@ class CFMIP:
             else:
                 status_name = "FEASIBLE"
 
-            solution = np.array([np.array([self._z[i, j].solution_value()
-                                           for j in range(self._nbins[i])]
-                                          ).astype(bool)
-                                 for i in range(self._p)], dtype=object)
+            # One entry per feature, each a boolean mask over that feature's
+            # bins. np.array of those stays 1-D only while the masks differ
+            # in length: with every feature holding the same number of bins
+            # it builds a rectangular (p, nbins) object array whose rows are
+            # object dtype, and those cannot be used as boolean masks in
+            # Counterfactual._get_counterfactual. Filling an empty object
+            # array one slot at a time keeps the two cases identical, as in
+            # binning_2d.py.
+            solution = np.empty(self._p, dtype=object)
+            for i in range(self._p):
+                solution[i] = np.array(
+                    [self._z[i, j].solution_value()
+                     for j in range(self._nbins[i])]).astype(bool)
         else:
             if status == pywraplp.Solver.ABNORMAL:
                 status_name = "ABNORMAL"

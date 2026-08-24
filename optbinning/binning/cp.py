@@ -186,9 +186,11 @@ class BinningCP:
         n_records = n_nonevent + n_event
         n_scenarios = len(w)
 
-        if w is not None:
-            sw = 10 ** np.abs(np.log10(np.min(w)))
-            w = [np.int64(w[s] * sw) for s in range(n_scenarios)]
+        # w is required. SBOptimalBinning._fit_optimizer substitutes
+        # np.ones(n_scenarios) for a missing weights argument before calling
+        # this, and the objective below indexes w unconditionally.
+        sw = 10 ** np.abs(np.log10(np.min(w)))
+        w = [np.int64(w[s] * sw) for s in range(n_scenarios)]
 
         # Initialize model
         model = cp_model.CpModel()

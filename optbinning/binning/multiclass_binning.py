@@ -352,6 +352,8 @@ class MulticlassOptimalBinning(OptimalBinning):
         self.prebinning_kwargs = prebinning_kwargs
 
         # auxiliary
+        self._user_splits = None
+        self._user_splits_fixed = None
         self._n_event = None
         self._n_event_missing = None
         self._n_event_special = None
@@ -504,6 +506,13 @@ class MulticlassOptimalBinning(OptimalBinning):
 
         _check_parameters(**self.get_params())
 
+        # user_splits and user_splits_fixed are constructor parameters. The
+        # fit reorders and shrinks them, so it works on private copies and
+        # leaves the parameters alone; rewriting them makes a second fit of
+        # the same estimator fail _check_parameters.
+        self._user_splits = self.user_splits
+        self._user_splits_fixed = self.user_splits_fixed
+
         # Pre-processing
         if self.verbose:
             logger.info("Pre-processing started.")
@@ -565,22 +574,31 @@ class MulticlassOptimalBinning(OptimalBinning):
                 logger.info("Pre-binning: user splits supplied: {}"
                             .format(n_splits))
 
-            user_splits = check_array(self.user_splits, ensure_2d=False,
-                                      dtype=None, ensure_all_finite=True)
+            if not n_splits:
+                # _prebinning_refinement returns the same empty arrays for an
+                # empty split set, and it is the only place the special and
+                # missing counts the post-processing needs are computed.
+                splits, n_nonevent, n_event = self._prebinning_refinement(
+                    np.array([]), x_clean, y_clean, y_missing, x_special,
+                    y_special, None)
+            else:
+                user_splits = check_array(self.user_splits, ensure_2d=False,
+                                          dtype=None, ensure_all_finite=True)
 
-            if len(set(user_splits)) != len(user_splits):
-                raise ValueError("User splits are not unique.")
+                if len(set(user_splits)) != len(user_splits):
+                    raise ValueError("User splits are not unique.")
 
-            sorted_idx = np.argsort(user_splits)
-            user_splits = user_splits[sorted_idx]
+                sorted_idx = np.argsort(user_splits)
+                user_splits = user_splits[sorted_idx]
+                self._user_splits = user_splits
 
-            if self.user_splits_fixed is not None:
-                self.user_splits_fixed = np.asarray(
-                    self.user_splits_fixed)[sorted_idx]
+                if self.user_splits_fixed is not None:
+                    self._user_splits_fixed = np.asarray(
+                        self.user_splits_fixed)[sorted_idx]
 
-            splits, n_nonevent, n_event = self._prebinning_refinement(
-                user_splits, x_clean, y_clean, y_missing, x_special, y_special,
-                None)
+                splits, n_nonevent, n_event = self._prebinning_refinement(
+                    user_splits, x_clean, y_clean, y_missing, x_special,
+                    y_special, None)
         else:
             splits, n_nonevent, n_event = self._fit_prebinning(
                 x_clean, y_clean, y_missing, x_special, y_special, None)
@@ -706,6 +724,17 @@ class MulticlassOptimalBinning(OptimalBinning):
                                         self.monotonic_trend)
                          for i in range(len(self._classes))]
 
+            if self.monotonic_trend == "auto_heuristic":
+                for i, trend in enumerate(monotonic):
+                    if trend in ("peak", "valley"):
+                        trend = "{}_heuristic".format(trend)
+                        monotonic[i] = trend
+
+                        event_rate = n_event[:, i] / (n_nonevent[:, i] +
+                                                      n_event[:, i])
+                        trend_changes[i] = peak_valley_trend_change_heuristic(
+                            event_rate, trend)
+
             if self.verbose:
                 logger.info("Optimizer: classifier predicts {} "
                             "monotonic trends.".format(monotonic))
@@ -739,6 +768,19 @@ class MulticlassOptimalBinning(OptimalBinning):
                         logger.info("Optimizer: classifier predicts {} "
                                     "monotonic trend.".format(trend))
                 else:
+                    # A heuristic trend supplied directly needs the same
+                    # change point the auto_heuristic branch above computes;
+                    # without it the model constraint receives None.
+                    if m_trend in ("peak_heuristic", "valley_heuristic"):
+                        event_rate = n_event[:, i] / (n_nonevent[:, i] +
+                                                      n_event[:, i])
+                        trend_changes[i] = peak_valley_trend_change_heuristic(
+                            event_rate, m_trend)
+
+                        if self.verbose:
+                            logger.info("Optimizer: trend change position {}."
+                                        .format(trend_changes[i]))
+
                     monotonic.append(m_trend)
         elif self.monotonic_trend is None:
             monotonic = [None] * self._n_classes
@@ -753,7 +795,7 @@ class MulticlassOptimalBinning(OptimalBinning):
                                             self.min_event_rate_diff,
                                             self.max_pvalue,
                                             self.max_pvalue_policy,
-                                            self.user_splits_fixed,
+                                            self._user_splits_fixed,
                                             self.time_limit)
         else:
             optimizer = MulticlassBinningMIP(monotonic, self.min_n_bins,
@@ -763,7 +805,7 @@ class MulticlassOptimalBinning(OptimalBinning):
                                              self.max_pvalue,
                                              self.max_pvalue_policy,
                                              self.mip_solver,
-                                             self.user_splits_fixed,
+                                             self._user_splits_fixed,
                                              self.time_limit)
         if self.verbose:
             logger.info("Optimizer: build model...")
@@ -818,9 +860,9 @@ class MulticlassOptimalBinning(OptimalBinning):
             mask_splits = np.concatenate(
                 [mask_remove[:-2], [mask_remove[-2] | mask_remove[-1]]])
 
-            if self.user_splits_fixed is not None:
-                user_splits_fixed = np.asarray(self.user_splits_fixed)
-                user_splits = np.asarray(self.user_splits)
+            if self._user_splits_fixed is not None:
+                user_splits_fixed = np.asarray(self._user_splits_fixed)
+                user_splits = np.asarray(self._user_splits)
                 fixed_remove = user_splits_fixed & mask_splits
 
                 if any(fixed_remove):
@@ -830,8 +872,8 @@ class MulticlassOptimalBinning(OptimalBinning):
                                      .format(user_splits[fixed_remove]))
 
                 # Update boolean array of fixed user splits.
-                self.user_splits_fixed = user_splits_fixed[~mask_splits]
-                self.user_splits = user_splits[~mask_splits]
+                self._user_splits_fixed = user_splits_fixed[~mask_splits]
+                self._user_splits = user_splits[~mask_splits]
 
             splits = splits_prebinning[~mask_splits]
 

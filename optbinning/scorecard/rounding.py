@@ -63,6 +63,12 @@ class RoundingMIP:
 
         # Constraints
         for i in range(nb):
+            # Bins attaining the unrounded minimum and maximum of a variable.
+            # Ties break towards the first minimum and the last maximum, so a
+            # variable with equal points can still round to distinct bounds.
+            jmin = int(np.argmin(points[i]))
+            jmax = nn[i] - 1 - int(np.argmax(points[i][::-1]))
+
             for j in range(nn[i]):
                 solver.Add(tp[i, j] - tm[i, j] == points[i][j] - p[i, j])
 
@@ -71,6 +77,12 @@ class RoundingMIP:
 
                 # Min score constraints for each variable
                 solver.Add(min_b[i] <= p[i, j])
+
+            # Minimum/maximum point by variable must be attained: without
+            # this, min_b/max_b are one-sided bounds and the sums below only
+            # imply min score >= min_point and max score <= max_point.
+            solver.Add(min_b[i] == p[i, jmin])
+            solver.Add(max_b[i] == p[i, jmax])
 
         # Sum of minimum/maximum point by variable must be min_point/max_point
         solver.Add(solver.Sum([min_b[i] for i in range(nb)]) == min_point)

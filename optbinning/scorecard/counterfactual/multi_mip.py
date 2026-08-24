@@ -9,6 +9,7 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
+from ...information import mark_solve_skipped
 from .mip import CFMIP
 
 
@@ -227,9 +228,19 @@ class MCFMIP(CFMIP):
                     pre_objs[name] = self._objectives[name].solution_value()
 
     def solve(self):
-        self.solver_.SetTimeLimit(self.time_limit * 1000)
+        # See CFMIP.solve: the budget is rounded to whole milliseconds, and
+        # one that rounds below a millisecond skips the solve instead of
+        # becoming MPSolver's "no limit".
+        time_limit_ms = int(round(self.time_limit * 1000))
+
         self.solver_.SetNumThreads(self.n_jobs)
-        status = self.solver_.Solve()
+
+        if time_limit_ms > 0:
+            self.solver_.SetTimeLimit(time_limit_ms)
+            status = self.solver_.Solve()
+        else:
+            mark_solve_skipped(self.solver_)
+            status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:
@@ -237,12 +248,20 @@ class MCFMIP(CFMIP):
             else:
                 status_name = "FEASIBLE"
 
-            solution = np.array(
-                [np.array(
-                    [np.array([self._z[k, i, j].solution_value()
-                               for j in range(self._nbins[i])]).astype(bool)
-                     for i in range(self._p)], dtype=object)
-                 for k in range(self.K)], dtype=object)
+            # One object array per counterfactual, filled a slot at a time
+            # -- see CFMIP.solve: equal bin counts would otherwise collapse
+            # the whole thing into a rectangular (K, p, nbins) object array,
+            # and solution[k][i] would be an object row rather than a
+            # boolean mask.
+            solution = np.empty(self.K, dtype=object)
+            for k in range(self.K):
+                masks = np.empty(self._p, dtype=object)
+                for i in range(self._p):
+                    masks[i] = np.array(
+                        [self._z[k, i, j].solution_value()
+                         for j in range(self._nbins[i])]).astype(bool)
+
+                solution[k] = masks
         else:
             if status == pywraplp.Solver.ABNORMAL:
                 status_name = "ABNORMAL"

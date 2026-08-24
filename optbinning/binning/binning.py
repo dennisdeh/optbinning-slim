@@ -534,6 +534,8 @@ class OptimalBinning(BaseOptimalBinning):
         # auxiliary
         self._flag_min_n_event_nonevent = False
         self._categories = None
+        self._user_splits = None
+        self._user_splits_fixed = None
         self._cat_others = None
         self._n_event = None
         self._n_nonevent = None
@@ -741,20 +743,32 @@ class OptimalBinning(BaseOptimalBinning):
 
         _check_parameters(**self.get_params())
 
+        # Working copies of the two user_splits parameters. Pre-binning
+        # reorders and prunes them; the constructor parameters themselves must
+        # survive the fit unchanged, or a second fit() on the same estimator
+        # is rejected by _check_parameters.
+        self._user_splits = self.user_splits
+        self._user_splits_fixed = self.user_splits_fixed
+
         # Pre-processing
         if self.verbose:
             logger.info("Pre-processing started.")
 
         self._n_samples = len(x)
-        self._n_samples_weighted = sum(sample_weight) if sample_weight is not None else len(x)
+        if sample_weight is not None:
+            self._n_samples_weighted = sum(sample_weight)
+        else:
+            self._n_samples_weighted = len(x)
 
         if self.verbose:
             if self._n_samples == self._n_samples_weighted:
                 logger.info("Pre-processing: number of samples: {}"
                             .format(self._n_samples))
             else:
-                logger.info("Pre-processing: number of samples: {}. Weighted samples: {}"
-                            .format(self._n_samples, self._n_samples_weighted))
+                logger.info("Pre-processing: number of samples: {}. "
+                            "Weighted samples: {}"
+                            .format(self._n_samples,
+                                    self._n_samples_weighted))
 
         time_preprocessing = time.perf_counter()
 
@@ -809,21 +823,25 @@ class OptimalBinning(BaseOptimalBinning):
 
         time_prebinning = time.perf_counter()
 
-        if self.user_splits is not None:
-            n_splits = len(self.user_splits)
+        if self._user_splits is not None:
+            n_splits = len(self._user_splits)
 
             if self.verbose:
                 logger.info("Pre-binning: user splits supplied: {}"
                             .format(n_splits))
 
             if not n_splits:
-                splits = self.user_splits
-                n_nonevent = np.array([])
-                n_event = np.array([])
+                # _prebinning_refinement returns the same empty arrays for an
+                # empty split set, and it is the only place the special and
+                # missing counts bin_info needs are computed.
+                splits, n_nonevent, n_event = self._prebinning_refinement(
+                    np.array([]), x_clean, y_clean, y_missing, x_special,
+                    y_special, y_others, sw_clean, sw_missing, sw_special,
+                    sw_others)
             else:
                 if self.dtype == "numerical":
                     user_splits = check_array(
-                        self.user_splits, ensure_2d=False, dtype=None,
+                        self._user_splits, ensure_2d=False, dtype=None,
                         ensure_all_finite=True)
 
                     if len(set(user_splits)) != len(user_splits):
@@ -835,11 +853,11 @@ class OptimalBinning(BaseOptimalBinning):
                     [categories, user_splits, x_clean, y_clean, y_others,
                      cat_others, sw_clean, sw_others, sorted_idx,
                      ] = preprocessing_user_splits_categorical(
-                        self.user_splits, x_clean, y_clean, sw_clean)
+                        self._user_splits, x_clean, y_clean, sw_clean)
 
-                if self.user_splits_fixed is not None:
-                    self.user_splits_fixed = np.asarray(
-                        self.user_splits_fixed)[sorted_idx]
+                if self._user_splits_fixed is not None:
+                    self._user_splits_fixed = np.asarray(
+                        self._user_splits_fixed)[sorted_idx]
 
                 splits, n_nonevent, n_event = self._prebinning_refinement(
                     user_splits, x_clean, y_clean, y_missing, x_special,
@@ -920,7 +938,8 @@ class OptimalBinning(BaseOptimalBinning):
                         class_weight=None, sw_clean=None, sw_missing=None,
                         sw_special=None, sw_others=None):
 
-        min_bin_size = int(np.ceil(self.min_prebin_size * self._n_samples_weighted))
+        min_bin_size = int(np.ceil(self.min_prebin_size *
+                                   self._n_samples_weighted))
 
         prebinning = PreBinning(method=self.prebinning_method,
                                 n_bins=self.max_n_prebins,
@@ -944,7 +963,14 @@ class OptimalBinning(BaseOptimalBinning):
         if len(n_nonevent) <= 1:
             self._status = "OPTIMAL"
             self._splits_optimal = splits
-            self._solution = np.zeros(len(splits), dtype=bool)
+            # _compute_prebins uses two layouts: with categorical user_splits
+            # every split is a bin (n_bins == n_splits), so the one surviving
+            # bin must be selected. Everywhere else n_bins == n_splits + 1 and
+            # this branch is only reachable with no splits at all.
+            if self.dtype == "categorical" and self._user_splits is not None:
+                self._solution = np.ones(len(splits), dtype=bool)
+            else:
+                self._solution = np.zeros(len(splits), dtype=bool)
 
             if self.verbose:
                 logger.warning("Optimizer: {} bins after pre-binning."
@@ -956,12 +982,14 @@ class OptimalBinning(BaseOptimalBinning):
 
         # Min/max number of bins
         if self.min_bin_size is not None:
-            min_bin_size = int(np.ceil(self.min_bin_size * self._n_samples_weighted))
+            min_bin_size = int(np.ceil(self.min_bin_size *
+                                       self._n_samples_weighted))
         else:
             min_bin_size = self.min_bin_size
 
         if self.max_bin_size is not None:
-            max_bin_size = int(np.ceil(self.max_bin_size * self._n_samples_weighted))
+            max_bin_size = int(np.ceil(self.max_bin_size *
+                                       self._n_samples_weighted))
         else:
             max_bin_size = self.max_bin_size
 
@@ -1035,7 +1063,7 @@ class OptimalBinning(BaseOptimalBinning):
                                   min_bin_n_nonevent, self.max_bin_n_nonevent,
                                   self.min_event_rate_diff, self.max_pvalue,
                                   self.max_pvalue_policy, self.gamma,
-                                  self.user_splits_fixed, self.time_limit)
+                                  self._user_splits_fixed, self.time_limit)
         elif self.solver == "mip":
             optimizer = BinningMIP(monotonic, self.min_n_bins, self.max_n_bins,
                                    min_bin_size, max_bin_size,
@@ -1043,7 +1071,7 @@ class OptimalBinning(BaseOptimalBinning):
                                    min_bin_n_nonevent, self.max_bin_n_nonevent,
                                    self.min_event_rate_diff, self.max_pvalue,
                                    self.max_pvalue_policy, self.gamma,
-                                   self.user_splits_fixed, self.mip_solver,
+                                   self._user_splits_fixed, self.mip_solver,
                                    self.time_limit)
 
         if self.verbose:
@@ -1063,7 +1091,7 @@ class OptimalBinning(BaseOptimalBinning):
             self.solver, optimizer.solver_)
         self._status = status
 
-        if self.dtype == "categorical" and self.user_splits is not None:
+        if self.dtype == "categorical" and self._user_splits is not None:
             self._splits_optimal = splits[solution]
         else:
             self._splits_optimal = splits[solution[:-1]]
@@ -1110,7 +1138,7 @@ class OptimalBinning(BaseOptimalBinning):
         if not n_splits:
             return splits_prebinning, np.array([]), np.array([])
 
-        if self.dtype == "categorical" and self.user_splits is not None:
+        if self.dtype == "categorical" and self._user_splits is not None:
             indices = np.digitize(x, splits_prebinning, right=True)
             n_bins = n_splits
         else:
@@ -1134,15 +1162,15 @@ class OptimalBinning(BaseOptimalBinning):
                 self._n_refinements += 1
 
                 if (self.dtype == "categorical" and
-                        self.user_splits is not None):
+                        self._user_splits is not None):
                     mask_splits = mask_remove
                 else:
                     mask_splits = np.concatenate([
                         mask_remove[:-2], [mask_remove[-2] | mask_remove[-1]]])
 
-                if self.user_splits_fixed is not None:
-                    user_splits_fixed = np.asarray(self.user_splits_fixed)
-                    user_splits = np.asarray(self.user_splits)
+                if self._user_splits_fixed is not None:
+                    user_splits_fixed = np.asarray(self._user_splits_fixed)
+                    user_splits = np.asarray(self._user_splits)
                     fixed_remove = user_splits_fixed & mask_splits
 
                     if any(fixed_remove):
@@ -1152,9 +1180,12 @@ class OptimalBinning(BaseOptimalBinning):
                             "different splits to be fixed."
                             .format(user_splits[fixed_remove]))
 
-                    # Update boolean array of fixed user splits.
-                    self.user_splits_fixed = user_splits_fixed[~mask_splits]
-                    self.user_splits = user_splits[~mask_splits]
+                    # Drop the removed prebins from the working copies. The
+                    # public parameters are left alone so the estimator can be
+                    # refitted; nothing downstream reads more than whether
+                    # user_splits is None.
+                    self._user_splits_fixed = user_splits_fixed[~mask_splits]
+                    self._user_splits = user_splits[~mask_splits]
 
                 splits = splits_prebinning[~mask_splits]
 
@@ -1243,8 +1274,8 @@ class OptimalBinning(BaseOptimalBinning):
 
     def to_dict(self):
         """
-        Convert optimal bins and/or splits points and transformation depending on
-        the target type to dictionary.
+        Convert optimal bins and/or splits points and transformation
+        depending on the target type to dictionary.
 
         Returns
         -------

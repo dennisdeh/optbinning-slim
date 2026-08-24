@@ -244,7 +244,7 @@ class ContinuousOptimalPWBinning(BasePWBinning):
         x_new : numpy array, shape = (n_samples,)
             Transformed array.
         """
-        return self.fit(x, y, check_input).transform(
+        return self.fit(x, y, lb, ub, check_input).transform(
             x, metric_special, metric_missing, lb, ub, check_input)
 
     def transform(self, x, metric_special=0, metric_missing=0,

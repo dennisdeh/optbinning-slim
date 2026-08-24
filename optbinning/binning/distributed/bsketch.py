@@ -30,7 +30,7 @@ def _check_parameters(sketch, eps, K, special_codes):
                           'install optbinning using pip install '
                           'optbinning[distributed]')
 
-    if not isinstance(eps, numbers.Number) and not 0 <= eps <= 1:
+    if not isinstance(eps, numbers.Number) or not 0 <= eps <= 1:
         raise ValueError("eps must be a value in [0, 1]; got {}."
                          .format(eps))
 
@@ -393,15 +393,28 @@ class BCatSketch:
         ----------
         bcatsketch : object
             BCatSketch instance.
-        """
 
-        # Merge categories
+        Raises
+        ------
+        Exception
+            If the two instances do not share the same signature, i.e. the
+            same ``special_codes``. A value that is a special code for one
+            instance and a category for the other would land in both the
+            special bucket and the categories, so the merged counts would
+            not describe any single stream.
+        """
+        if not self._mergeable(bcatsketch):
+            raise Exception("bcatsketch does not share signature.")
+
+        # Merge categories. The counts of a category only the other instance
+        # has are copied, not aliased: a later add() on either instance would
+        # otherwise mutate the counts of both.
         for k, v in bcatsketch._d_categories.items():
             if k in self._d_categories:
                 self._d_categories[k][0] += v[0]
                 self._d_categories[k][1] += v[1]
             else:
-                self._d_categories[k] = v
+                self._d_categories[k] = list(v)
 
         # Merge missing and special counts
         self._count_missing_e += bcatsketch._count_missing_e

@@ -11,6 +11,7 @@ from ..metrics import jeffrey
 from ..metrics import jensen_shannon
 from ..metrics import hellinger
 from ..metrics import triangular
+from .model_data_2d import _check_rectangles
 from .model_data_2d import _connected_rectangles
 
 
@@ -193,6 +194,8 @@ def model_data_cart(tree, divergence, NE, E, monotonicity_x, monotonicity_y,
                             rectangles.append(path)
 
                         paths.add(path)
+
+    _check_rectangles(n_rectangles)
 
     n_event = np.array(n_fe)
     n_nonevent = np.array(n_fne)

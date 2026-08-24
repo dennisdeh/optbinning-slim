@@ -15,11 +15,15 @@ from sklearn.exceptions import NotFittedError
 
 class OutlierDetector:
     """Base class for all outlier detectors."""
-    def __init__(self):
-        self._support = None
 
-        # flag
-        self._is_fitted = False
+    # Class-level, not set in __init__: the concrete detectors define their own
+    # __init__ storing only their hyper-parameters and do not chain to this
+    # class, so an unfitted detector would otherwise raise AttributeError from
+    # get_support instead of the NotFittedError below.
+    _support = None
+
+    # flag
+    _is_fitted = False
 
     def fit(self, x, y=None):
         """Fit outlier detector.

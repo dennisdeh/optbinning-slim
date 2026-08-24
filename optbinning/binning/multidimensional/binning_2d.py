@@ -334,9 +334,13 @@ class OptimalBinning2D(OptimalBinning):
         the data values that must be treated separately.
 
     split_digits : int or None, optional (default=None)
-        The significant digits of the split points. If ``split_digits`` is set
-        to 0, the split points are integers. If None, then all significant
-        digits in the split points are considered.
+        The significant digits of the split points of a **numerical** axis. If
+        ``split_digits`` is set to 0, the split points are integers. If None,
+        then all significant digits in the split points are considered. Split
+        points that round onto the same value are merged into one. A
+        categorical axis is pre-binned on the ordinal encoding of its
+        categories, where rounding would regroup categories rather than
+        shorten a split value, so it is left alone.
 
     n_jobs : int or None, optional (default=None)
         Number of cores to run in parallel while binning variables.
@@ -636,7 +640,11 @@ class OptimalBinning2D(OptimalBinning):
             n_splits_x = len(splits_x)
             n_splits_y = len(splits_y)
 
-            clf_nodes = n_splits_x * n_splits_y
+            # The tree partitions the (n_splits_x + 1) x (n_splits_y + 1)
+            # grid, so an axis the pre-binning left unsplit zeroes the
+            # product and sklearn rejects max_leaf_nodes=0. Two is the
+            # smallest bound that still describes a partition.
+            clf_nodes = max(n_splits_x * n_splits_y, 2)
 
             indices_x = np.digitize(x_clean, splits_x, right=False)
             n_bins_x = n_splits_x + 1
@@ -697,7 +705,15 @@ class OptimalBinning2D(OptimalBinning):
         D = np.empty(m * n, dtype=float)
         P = np.empty(m * n, dtype=int)
 
-        selected_rows = np.array(rows, dtype=object)[self._solution]
+        # One entry per rectangle, each a list of flat grid-cell indices.
+        # np.array(rows, dtype=object) gives that only while rows is ragged:
+        # with every rectangle the same size it builds a rectangular 2-D
+        # object array, and the P[r] / D[r] indexing below raises IndexError.
+        all_rows = np.empty(len(rows), dtype=object)
+        for i, r in enumerate(rows):
+            all_rows[i] = r
+
+        selected_rows = all_rows[self._solution]
 
         self._selected_rows = selected_rows
         self._m, self._n = m, n
@@ -770,7 +786,19 @@ class OptimalBinning2D(OptimalBinning):
                                 min_bin_size=min_bin_size,
                                 problem_type=self._problem_type).fit(x, z)
 
-        return prebinning.splits
+        splits = prebinning.splits
+
+        # A categorical x reaches here as the ordinal encoding of its
+        # categories, not as a user-facing value, so rounding it would move
+        # categories between bins rather than shorten a number.
+        if (self.split_digits is not None and dtype == "numerical" and
+                len(splits)):
+            # Rounding can collapse two splits onto one value.
+            # _prebinning_matrices has no empty-prebin removal, unlike the 1D
+            # path, so the duplicate has to be dropped here.
+            splits = np.unique(np.round(splits, self.split_digits))
+
+        return splits
 
     def _prebinning_matrices(self, splits_x, splits_y, x_clean, y_clean,
                              z_clean, x_missing, y_missing, z_missing,
@@ -816,6 +844,35 @@ class OptimalBinning2D(OptimalBinning):
 
         time_init = time.perf_counter()
 
+        # A target carrying a single class is degenerate but legal. Every
+        # rectangle of the grid is then pure, and model_data keeps only mixed
+        # rectangles, so the model would come out empty. Return the whole grid
+        # as the single bin instead -- what OptimalBinning does when the
+        # pre-binning refinement leaves it a single prebin.
+        t_n_event = int(E.sum())
+        t_n_nonevent = int(NE.sum())
+
+        if (t_n_event == 0) != (t_n_nonevent == 0):
+            rows = [list(range(E.size))]
+            n_nonevent = np.array([t_n_nonevent])
+            n_event = np.array([t_n_event])
+
+            self._status = "OPTIMAL"
+            self._solution = np.array([True])
+            self._cols = {c: [0] for c in range(E.size)}
+            self._rows = rows
+            self._c = np.zeros(1)
+            self._time_solver = time.perf_counter() - time_init
+
+            if self.verbose:
+                logger.warning("Optimizer: target contains a single class.")
+                logger.warning("Optimizer: solver not run.")
+
+                logger.info("Optimizer terminated. Time: {:.4f}s"
+                            .format(self._time_solver))
+
+            return rows, n_nonevent, n_event
+
         # Min/max number of bins (bin size)
         if self.min_bin_size is not None:
             min_bin_size = int(np.ceil(self.min_bin_size * self._n_samples))
@@ -845,7 +902,7 @@ class OptimalBinning2D(OptimalBinning):
                     "Optimizer: monotonic trend y not set.")
             else:
                 logger.info("Optimizer: monotonic trend y set to {}."
-                            .format(self.monotonic_trend_x))
+                            .format(self.monotonic_trend_y))
 
         if self.solver == "cp":
             scale = int(1e6)
@@ -870,7 +927,11 @@ class OptimalBinning2D(OptimalBinning):
 
         time_model_data = time.perf_counter()
 
-        if self.strategy == "cart":
+        # strategy="cart" has no partition to describe on a grid of a single
+        # cell: the tree carries no split, and get_rectangles then walks a
+        # parent node that is not there. The cart partition of one cell is
+        # that cell, which is what the grid formulation returns.
+        if self.strategy == "cart" and E.size > 1:
             [n_grid, n_rectangles, rows, cols, c, d_connected_x, d_connected_y,
              event_rate, n_event, n_nonevent, n_records] = model_data_cart(
                 self._clf, self.divergence, NE, E, self.monotonic_trend_x,

@@ -34,7 +34,9 @@ def _apply_transform(x, c, lb, ub, special_codes, metric_special,
 
     x_transform[clean_mask] = x_clean_transform
 
-    if special_codes:
+    # bool() on an ndarray of more than one code raises; the checker
+    # and the docstrings accept a numpy.ndarray here.
+    if special_codes is not None and len(special_codes):
         if isinstance(special_codes, dict):
             xt = pd.Series(x)
             for i, (k, s) in enumerate(special_codes.items()):
@@ -59,8 +61,8 @@ def _apply_transform(x, c, lb, ub, special_codes, metric_special,
 
 
 def transform_binary_target(splits, x, c, lb, ub, n_nonevent, n_event,
-                            n_event_special, n_nonevent_special,
-                            n_event_missing, n_nonevent_missing,
+                            n_nonevent_special, n_event_special,
+                            n_nonevent_missing, n_event_missing,
                             special_codes, metric, metric_special,
                             metric_missing, check_input=False):
 

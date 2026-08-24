@@ -10,6 +10,8 @@ import numpy as np
 
 from ortools.linear_solver import pywraplp
 
+from ...information import mark_solve_skipped
+
 
 class Binning2DMIP:
     def __init__(self, monotonic_trend_x, monotonic_trend_y, min_n_bins,
@@ -84,10 +86,27 @@ class Binning2DMIP:
         self._n_rectangles = n_rectangles
 
     def solve(self):
-        # Solve
-        self.solver_.SetTimeLimit(self.time_limit * 1000)
+        # Solve. MPSolver.SetTimeLimit takes int64 milliseconds and reads 0
+        # as "no limit", whereas time_limit is validated as any non-negative
+        # number of seconds and Binning2DCP hands the same value to CP-SAT
+        # as a double. Round to the nearest millisecond so a fractional
+        # limit is honoured instead of raising a SWIG TypeError, and never
+        # pass on a zero: a budget that rounds below one millisecond is no
+        # budget, and must not silently become an unbounded run. CP-SAT
+        # reports UNKNOWN for such a budget, and so must this. The thread
+        # count is not part of the budget and is set either way.
+        time_limit_ms = int(round(self.time_limit * 1000))
+
         self.solver_.SetNumThreads(self.n_jobs)
-        status = self.solver_.Solve()
+
+        if time_limit_ms > 0:
+            self.solver_.SetTimeLimit(time_limit_ms)
+            status = self.solver_.Solve()
+        else:
+            # The model is left built but unsolved, and information
+            # .solver_statistics is asked for its objective either way.
+            mark_solve_skipped(self.solver_)
+            status = pywraplp.Solver.NOT_SOLVED
 
         if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             if status == pywraplp.Solver.OPTIMAL:

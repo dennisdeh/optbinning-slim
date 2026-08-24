@@ -317,7 +317,7 @@ class PWBinningTable(BinningTable):
 
         # Significance tests
         n_bins = len(self._n_records)
-        n_metric = n_bins - 2
+        n_metric = n_bins - 1 - self._n_specials
 
         n_nev = self.n_nonevent[:n_metric]
         n_ev = self.n_event[:n_metric]
@@ -629,7 +629,7 @@ class PWContinuousBinningTable:
 
         # Significance tests
         n_bins = len(self.n_records)
-        n_metric = n_bins - 2
+        n_metric = n_bins - 1 - self._n_specials
 
         n_records = self.n_records[:n_metric]
         mean = self._mean[:n_metric]

@@ -114,6 +114,15 @@ class ContinuousBinningCP(BinningCP):
             self.add_constraint_monotonic_valley_heuristic(
                 model, n, U, x, trend_change, M)
 
+        # Constraint: reduction of dominating bins
+        if self.gamma:
+            for i in range(n):
+                bin_size = sum([n_records[j] * x[i, j] for j in range(i + 1)])
+
+                model.Add(pmin <= total_records * (1 - x[i, i]) + bin_size)
+                model.Add(pmax >= bin_size)
+            model.Add(pmin <= pmax)
+
         # Constraint: max-pvalue
         self.add_constraint_violation(model, x, pvalue_violation_indices)
 

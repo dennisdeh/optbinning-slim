@@ -13,6 +13,19 @@ from ..metrics import hellinger
 from ..metrics import triangular
 
 
+def _check_rectangles(n_rectangles):
+    # Every candidate rectangle was dropped, so there is no model to build
+    # and the divergence would be handed empty arrays.
+    if not n_rectangles:
+        raise ValueError(
+            "No bin candidate satisfies the constraints: every rectangle "
+            "holds only events or only non-events, or violates a bin size "
+            "or bin count bound. Check that the target contains both "
+            "classes, and relax min_bin_size, max_bin_size, "
+            "min_bin_n_event, max_bin_n_event, min_bin_n_nonevent and "
+            "max_bin_n_nonevent.")
+
+
 def _connected_rectangles(m, n, n_rectangles, monotonicity_x, monotonicity_y,
                           rows, cols, outer_x, outer_y):
 
@@ -127,6 +140,8 @@ def model_data(divergence, NE, E, monotonicity_x, monotonicity_y, scale,
                     n_fne.append(sfne)
 
                     n_rectangles += 1
+
+    _check_rectangles(n_rectangles)
 
     n_event = np.array(n_fe)
     n_nonevent = np.array(n_fne)

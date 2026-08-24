@@ -296,6 +296,12 @@ class BasePWBinning(Base, BaseEstimator):
         y : array-like, shape = (n_samples,)
             Target vector relative to x.
 
+        lb : float or None (default=None)
+            Avoid values below the lower bound lb.
+
+        ub : float or None (default=None)
+            Avoid values above the upper bound ub.
+
         check_input : bool (default=False)
             Whether to check input arrays.
 
