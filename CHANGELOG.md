@@ -190,6 +190,12 @@ exception was raised, the output merely was not what it claimed to be.
 - `jensen_shannon_multivariate` rejected the array-like it documents.
 - Error messages that named values the code rejects, and docstrings that
   advertised `outlier_detector="zcore"` where only `"zscore"` is accepted.
+- **`time_limit` was documented as `int`** in all eight docstrings that carry
+  it, while every validator has always accepted any number and both solver
+  backends honour a fractional value. It now reads `int or float`, and says that
+  a fractional budget is honoured to a resolution of one millisecond — the MIP
+  models round to whole milliseconds and clamp a positive sub-millisecond budget
+  up to one, rather than discarding it.
 
 ### Continuous integration
 

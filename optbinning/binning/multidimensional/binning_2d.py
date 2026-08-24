@@ -355,8 +355,9 @@ class OptimalBinning2D(OptimalBinning):
         Number of cores to run in parallel while binning variables.
         ``None`` means 1 core. ``-1`` means using all processors.
 
-    time_limit : int (default=100)
-        The maximum time in seconds to run the optimization solver.
+    time_limit : int or float (default=100)
+        The maximum time in seconds to run the optimization solver. A
+        fractional value is honoured, to a resolution of one millisecond.
 
     verbose : bool (default=False)
         Enable verbose output.

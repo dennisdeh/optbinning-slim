@@ -353,8 +353,9 @@ class OptimalBinningSketch(BaseSketch, BaseEstimator):
         choose the Google OR-Tools binary optimizer or "cbc" to choose the
         COIN-OR Branch-and-Cut solver CBC.
 
-    time_limit : int (default=100)
-        The maximum time in seconds to run the optimization solver.
+    time_limit : int or float (default=100)
+        The maximum time in seconds to run the optimization solver. A
+        fractional value is honoured, to a resolution of one millisecond.
 
     verbose : bool (default=False)
         Enable verbose output.

@@ -384,8 +384,9 @@ class Counterfactual(BaseCounterfactual):
             Relative tolerance when solving the multi-objective optimization
             problem with ``method="hierarchical"``.
 
-        time_limit : int (default=10)
-            The maximum time in seconds to run the optimization solver.
+        time_limit : int or float (default=10)
+            The maximum time in seconds to run the optimization solver. A
+            fractional value is honoured, to a resolution of one millisecond.
 
         Returns
         -------

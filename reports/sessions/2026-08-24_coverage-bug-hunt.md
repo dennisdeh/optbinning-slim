@@ -117,6 +117,12 @@ had just defined); the `time_limit : int` docstrings; `OptimalPWBinning.fit`
 fitting the caller's estimator in place; and a dict `metric_special` that passes
 validation and then raises.
 
+*Both `time_limit` items were resolved later the same day, on request: non-finite
+values are now rejected at all eight sites and the docstrings read `int or
+float`. The reasoning for the first is in `DECISIONS.md`. The other two are
+still open. Left as written above because this is a point-in-time record of the
+session, not a live list — `OPEN_ITEMS.md` is the live list.*
+
 ## Filing
 
 Defects that remain open are in `OPEN_ITEMS.md`; removal proposals and the remaining

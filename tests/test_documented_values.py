@@ -157,3 +157,21 @@ def test_modified_zscore_detector_docstring_matches_its_signature():
     signature = set(inspect.signature(
         ModifiedZScoreDetector.__init__).parameters) - {"self"}
     assert documented == signature
+
+
+def test_time_limit_is_documented_as_int_or_float():
+    # Every _check_parameters validates time_limit as numbers.Number, and
+    # both solver backends honour a fractional value, so `int` alone was
+    # never the accurate type. Mechanical because the entry is duplicated
+    # across eight files and drifted for the whole life of the project.
+    entries = []
+    for path in _sources():
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("time_limit : "):
+                entries.append((path.name, stripped))
+
+    assert entries, "no time_limit docstring entries found"
+    wrong = [(name, text) for name, text in entries
+             if not text.startswith("time_limit : int or float ")]
+    assert wrong == []

@@ -3,25 +3,6 @@
 Things the code does that it should not. One entry per defect; remove the entry
 in the commit that fixes it.
 
-## `time_limit` is documented as `int`, but floats are honoured
-
-*Last updated: 2026-08-24*
-
-Every `time_limit` entry reads `time_limit : int (default=...)`. This has been
-inaccurate since before the fork: `_check_parameters` validates
-`numbers.Number`, and `solver="cp"` has always honoured a fractional value. As
-of 2026-08-24 `solver="mip"` honours one too, rounding to the nearest
-millisecond, so `int or float` is now the only accurate type.
-
-Sites: `binning/binning.py`, `binning/continuous_binning.py`,
-`binning/multiclass_binning.py`, `binning/distributed/binning_sketch.py`,
-`binning/uncertainty/binning_scenarios.py`,
-`binning/multidimensional/binning_2d.py`,
-`binning/multidimensional/continuous_binning_2d.py` and
-`scorecard/counterfactual/counterfactual.py`. The validators at those eight
-sites were corrected on 2026-08-24 (see `DECISIONS.md`); only the documented
-type is still wrong.
-
 ## `OptimalPWBinning.fit` fits the caller's estimator in place
 
 *Last updated: 2026-08-24*

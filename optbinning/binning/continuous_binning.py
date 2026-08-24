@@ -311,8 +311,9 @@ class ContinuousOptimalBinning(OptimalBinning):
         to 0, the split points are integers. If None, then all significant
         digits in the split points are considered.
 
-    time_limit : int (default=100)
-        The maximum time in seconds to run the optimization solver.
+    time_limit : int or float (default=100)
+        The maximum time in seconds to run the optimization solver. A
+        fractional value is honoured, to a resolution of one millisecond.
 
     verbose : bool (default=False)
         Enable verbose output.
