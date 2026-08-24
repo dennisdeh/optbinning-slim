@@ -8,14 +8,17 @@ before 0.22.0 are upstream's; their notes are in the
 The fork adds no algorithms. Everything below is packaging, currency with the
 Python and dependency stack, defect fixes and test coverage.
 
-## Unreleased
+## 0.23.0 (2026-08-24)
 
-Getting CI green for the first time. Three of the four defects below surfaced
-only off this project's development machine — found by reading the CI logs of
-the seven consecutive red runs that followed the 0.22.0 release, none of them
-reproducing on Linux x86-64 with CPython 3.13.15 or 3.14.7, which is why the
-suite was green locally throughout. The fourth, the `MDLP` refit, was found
-while fixing the others.
+The first release published by the release workflow instead of uploaded by
+hand, and the first cut from a CI matrix green on all six cells.
+
+Everything below is defect fixes, test coverage and packaging — the fork still
+adds no algorithms. The recurring theme is portability. Several of these
+defects were invisible on the development machine and surfaced only in CI, on
+macOS arm64 or on Windows, because the code rested on an undefined integer cast
+or on the platform's locale codec; the suite was green locally throughout. They
+were found by reading CI logs, not by running the tests again.
 
 ### Fixed
 

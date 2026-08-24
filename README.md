@@ -182,8 +182,8 @@ Current status — *measured 2026-08-24 on Python 3.13.15*:
 |---|---|
 | **Result** | **1110 passed, 0 failed** (23 warnings) |
 | **Test modules** | 35 |
-| **Wall clock** | 211 s (binning problems are real solver runs; the suite is not instant) |
-| **Statement coverage** | **99%** — 11,564 statements, 13 uncovered |
+| **Wall clock** | 215 s (binning problems are real solver runs; the suite is not instant) |
+| **Statement coverage** | **99%** — 11,587 statements, 13 uncovered |
 | **Lint gate** | `flake8 --select=E9,F63,F7,F82` → 0 issues |
 
 Verified against: numpy 2.5.2, pandas 3.0.5, scipy 1.18.1, scikit-learn 1.9.0,
@@ -377,7 +377,7 @@ Print an overview of the option settings, problem statistics and the solution:
 ```
 
 ```text
-optbinning (Version 0.22.0)
+optbinning (Version 0.23.0)
 Copyright (c) 2019-2025 Guillermo Navas-Palencia, Apache License 2.0
 
   Begin options
@@ -546,7 +546,7 @@ variables after the binning process.
 ```
 
 ```text
-optbinning (Version 0.22.0)
+optbinning (Version 0.23.0)
 Copyright (c) 2019-2025 Guillermo Navas-Palencia, Apache License 2.0
 
   Begin options
