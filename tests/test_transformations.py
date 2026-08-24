@@ -15,7 +15,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from pytest import approx
+from pytest import approx, raises
 
 from optbinning import BinningProcess
 from optbinning import ContinuousOptimalBinning
@@ -505,3 +505,114 @@ def test_unknown_category_uses_the_whole_sample_event_rate():
     # special bucket is transformed.
     assert optb.transform(unknown, metric="event_rate",
                           metric_special="empirical") == approx([total_rate])
+
+
+# ---------------------------------------------------------------------------
+# metric_special as a dict: one value per named special bucket
+# ---------------------------------------------------------------------------
+
+PROBE = np.array([SPECIAL_A, SPECIAL_B])
+
+
+def test_metric_special_dict_binary():
+    # _check_metric_special_missing has always had a dict branch validating
+    # one number per key -- it arrived with named special_codes in upstream
+    # 51445f0 -- but the transform ignored the keys and handed the dict
+    # itself to numpy, so this raised
+    # `TypeError: float() argument must be a string or a real number`.
+    optb = OptimalBinning(special_codes=SPECIAL_DICT)
+    optb.fit(x_special, y)
+
+    got = optb.transform(PROBE, metric="woe",
+                         metric_special={"code_a": 0.5, "code_b": 0.9})
+    assert got == approx([0.5, 0.9])
+
+    # A single value still applies to every bucket.
+    same = optb.transform(PROBE, metric="woe", metric_special=0.5)
+    assert same == approx([0.5, 0.5])
+
+    # "empirical" still resolves per bucket, which is the behaviour the dict
+    # form generalises: each bucket keeps its own number.
+    empirical = optb.transform(PROBE, metric="event_rate",
+                               metric_special="empirical")
+    assert empirical == approx([EVENT_RATE_A, EVENT_RATE_B])
+
+
+def test_metric_special_dict_honours_the_indices_rule():
+    # For metric="indices" a non-int metric_special means "use the bucket's
+    # own index". The dict form applies that rule per key, exactly as the
+    # scalar form does for all of them.
+    optb = OptimalBinning(special_codes=SPECIAL_DICT)
+    optb.fit(x_special, y)
+
+    # 77 and 88 cannot collide with a real bin index. The obvious choice,
+    # 8 and 9, is exactly what the two buckets already get from an 8-bin
+    # fit, so it would pass without the dict being read at all.
+    bucket_indices = list(optb.transform(PROBE, metric="indices",
+                                         metric_special="empirical"))
+    assert bucket_indices == [8, 9]
+
+    ints = optb.transform(PROBE, metric="indices",
+                          metric_special={"code_a": 77, "code_b": 88})
+    assert list(ints) == [77, 88]
+
+    floats = optb.transform(PROBE, metric="indices",
+                            metric_special={"code_a": 0.5, "code_b": 0.5})
+    assert list(floats) == bucket_indices
+
+
+def test_metric_special_dict_continuous_multiclass_and_piecewise():
+    optb = ContinuousOptimalBinning(special_codes=SPECIAL_DICT)
+    optb.fit(x_continuous_special, y_continuous)
+    assert optb.transform(PROBE,
+                          metric_special={"code_a": 1.0,
+                                          "code_b": 2.0}) == approx([1.0, 2.0])
+
+    optm = MulticlassOptimalBinning(special_codes=SPECIAL_DICT)
+    optm.fit(x_multiclass_special, y_multiclass)
+    assert optm.transform(PROBE, metric="mean_woe",
+                          metric_special={"code_a": 0.3,
+                                          "code_b": 0.7}) == approx([0.3, 0.7])
+
+    optp = OptimalPWBinning(special_codes=SPECIAL_DICT)
+    optp.fit(x_special, y)
+    assert optp.transform(PROBE, metric="event_rate",
+                          metric_special={"code_a": 0.25,
+                                          "code_b": 0.75}) == approx(
+                                              [0.25, 0.75])
+
+
+def test_metric_special_dict_requires_named_special_codes():
+    # Without dict special_codes there are no names to map on to. This used
+    # to reach numpy and fail with a TypeError naming neither parameter.
+    optb = OptimalBinning(special_codes=SPECIAL_LIST)
+    optb.fit(x_special, y)
+
+    with raises(ValueError, match="requires special_codes as a dict"):
+        optb.transform(PROBE, metric="woe", metric_special={"code_a": 0.5})
+
+    # The 2D estimators accept only list/ndarray special codes, so a dict is
+    # never meaningful there either.
+    optb2d = OptimalBinning2D(special_codes_x=SPECIAL_LIST,
+                              max_n_prebins_x=4, max_n_prebins_y=4)
+    x2 = _plant(df["mean radius"].values)
+    y2 = df["mean texture"].values
+    optb2d.fit(x2, y2, y)
+    with raises(ValueError, match="requires special_codes as a dict"):
+        optb2d.transform(x2, y2, metric="woe",
+                         metric_special={"code_a": 0.5})
+
+
+def test_metric_special_dict_must_cover_every_special_code():
+    # A bucket with no value would otherwise be silently given the dict, or
+    # silently given 0 -- both wrong numbers rather than an error.
+    optb = OptimalBinning(special_codes=SPECIAL_DICT)
+    optb.fit(x_special, y)
+
+    with raises(ValueError, match=r"missing a value for special code\(s\)"):
+        optb.transform(PROBE, metric="woe", metric_special={"code_a": 0.5})
+
+    # A typo is caught by the same check: the real key goes missing.
+    with raises(ValueError, match="code_b"):
+        optb.transform(PROBE, metric="woe",
+                       metric_special={"code_a": 0.5, "code_bb": 0.9})

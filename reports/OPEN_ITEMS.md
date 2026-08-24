@@ -25,26 +25,6 @@ caller a fresh estimator and match the sklearn contract, but a user who passes a
 pre-configured estimator and then inspects it afterwards is relying on today's
 behaviour, and nothing documents either reading.
 
-## A dict `metric_special` passes validation and then raises
-
-*Last updated: 2026-08-24*
-
-`transformations.py::_check_metric_special_missing` has a dedicated
-`elif isinstance(metric_special, dict):` branch that validates every value is a
-number, and its fall-through message advertises "a dict" as an allowed form.
-`_apply_transform` then cannot use one. Verified 2026-08-24:
-`optb.transform(x, metric="woe", metric_special={"a": 0.5})` raises
-`TypeError: float() argument must be a string or a real number, not 'dict'`.
-
-Every public `transform` docstring says `metric_special : float or str
-(default=0)`, so the docstrings and the validator disagree with each other as
-well. Either the validator's dict branch should go, or `_apply_transform` should
-map a named special code to its value — which is the reading the dict form of
-`special_codes` suggests. This was examined twice on 2026-08-24: once reported
-as a defect and refuted on the grounds that per-key semantics are undocumented,
-then re-judged, because the refutation does not explain why the validator has a
-dict branch at all.
-
 ## cvxpy cannot use its HIGHS backend in any optbinning process
 
 *Last updated: 2026-08-23*

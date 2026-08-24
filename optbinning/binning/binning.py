@@ -632,10 +632,12 @@ class OptimalBinning(BaseOptimalBinning):
             indices of the bins and "bins" to assign the corresponding
             bin interval.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
-            event rate, and any numerical value.
+            event rate, and any numerical value. When ``special_codes``
+            is a dict, a dict keyed by the same names gives each special
+            bucket its own value, and every name must be present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
@@ -675,10 +677,13 @@ class OptimalBinning(BaseOptimalBinning):
             indices of the bins and "bins" to assign the corresponding
             bin interval.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
             event rate and any numerical value.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.

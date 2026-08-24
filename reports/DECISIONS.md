@@ -617,3 +617,60 @@ Pinned by `test_non_finite_time_limit_is_rejected_1d`,
 `tests/test_binning_solvers.py`, and by
 `test_generate_rejects_a_non_finite_time_limit` in
 `tests/test_counterfactual_edge_cases.py`. All were red before the change.
+
+## A dict `metric_special` names one value per special bucket
+
+*Last updated: 2026-08-24*
+
+`_check_metric_special_missing` has always had an `elif isinstance(
+metric_special, dict)` branch validating one number per key, and its
+fall-through message advertised "a dict" as an allowed form — while
+`_apply_transform` handed the dict itself to numpy, so any dict raised
+`TypeError: float() argument must be a string or a real number, not 'dict'`.
+
+Two readings were possible: delete the validator branch, or implement the
+per-key semantics. **The per-key reading was taken**, on three pieces of
+evidence:
+
+- `git log -L` puts the dict branch in upstream `51445f0`, *"Support treatment
+  of special codes separately"* — the same commit that introduced **named**
+  (dict) `special_codes`. The two features arrived together and only one was
+  finished.
+- The validator is asymmetric: `metric_special` takes a dict, `metric_missing`
+  does not. There is exactly one missing bucket and arbitrarily many named
+  special buckets, which is only a meaningful distinction under the per-key
+  reading.
+- `_apply_transform` already loops `for i, (k, s) in enumerate(
+  special_codes.items())` with the bucket name `k` bound — and never used it.
+  `metric_special="empirical"` already resolves to a different value per
+  bucket, so the addressing machinery was there; only the lookup was missing.
+
+Deleting the branch would have thrown all three away to save four lines.
+
+**Two cross-checks are enforced**, in `_check_metric_special_dict`, which runs
+where `special_codes` and `metric_special` are first known together:
+
+- a dict `metric_special` with non-dict `special_codes` raises — there are no
+  names to map on to. This is what the 2D estimators always hit, since
+  `special_codes_x` / `special_codes_y` accept only list and ndarray;
+- a dict that omits a bucket raises, naming it. The alternative — silently
+  substituting 0 — is the class of defect the 2026-08-24 work spent four rounds
+  removing. It also catches a mistyped key, since the real key then goes
+  missing. Extra keys are *not* rejected: they are harmless, and rejecting them
+  would break passing one dict to a `BinningProcess` whose variables carry
+  different special codes.
+
+The `metric="indices"` rule is applied per key, exactly as the scalar form
+applies it to all buckets: an int is used as given, anything else means "use the
+bucket's own index".
+
+Pinned by the five `test_metric_special_dict_*` tests in
+`tests/test_transformations.py`, all red against the unfixed code. Note the
+index test asserts 77 and 88 rather than the obvious 8 and 9 — an eight-bin fit
+gives the two buckets indices 8 and 9, so that assertion passed without the dict
+being read at all.
+
+Fifteen `transform` / `fit_transform` docstrings now declare
+`float, str or dict`. The eight that still say `float or str` are the estimators
+whose `_check_parameters` does not accept a dict `special_codes` at all — the
+sketch, scenario and 2D families — and are correct as they stand.

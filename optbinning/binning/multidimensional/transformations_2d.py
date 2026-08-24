@@ -10,6 +10,7 @@ import pandas as pd
 
 from sklearn.utils import check_array
 
+from ..transformations import _check_metric_special_dict
 from ..transformations import _check_metric_special_missing
 from ..transformations import _check_show_digits
 from .binning_statistics_2d import bin_categorical
@@ -120,6 +121,9 @@ def transform_binary_target(dtype_x, dtype_y, splits_x, splits_y, x, y,
                          '"bins".')
 
     _check_metric_special_missing(metric_special, metric_missing)
+    # special_codes_x / _y are list-or-ndarray only, so a dict here can
+    # never name a bucket; say so instead of failing inside numpy.
+    _check_metric_special_dict(metric_special, None)
     _check_show_digits(show_digits)
 
     if check_input:
@@ -209,6 +213,9 @@ def transform_continuous_target(dtype_x, dtype_y, splits_x, splits_y, x, y,
                          'values are "mean", "indices" and "bins".')
 
     _check_metric_special_missing(metric_special, metric_missing)
+    # special_codes_x / _y are list-or-ndarray only, so a dict here can
+    # never name a bucket; say so instead of failing inside numpy.
+    _check_metric_special_dict(metric_special, None)
     _check_show_digits(show_digits)
 
     if check_input:

@@ -90,6 +90,30 @@ def _check_metric_special_missing(metric_special, metric_missing):
                          .format(metric_missing))
 
 
+def _check_metric_special_dict(metric_special, special_codes):
+    """Cross-check a dict metric_special against the special codes.
+
+    A dict metric_special carries one value per *named* special bucket, so it
+    only means anything when special_codes names them. The two are first known
+    together inside the transform, which is why this is separate from
+    _check_metric_special_missing, which validates the value's shape alone.
+    """
+    if not isinstance(metric_special, dict):
+        return
+
+    if not isinstance(special_codes, dict):
+        raise ValueError(
+            "metric_special as a dict requires special_codes as a dict; "
+            "there are no named special buckets to map the values on to.")
+
+    missing = sorted(set(special_codes) - set(metric_special), key=str)
+    if missing:
+        raise ValueError(
+            "metric_special is missing a value for special code(s) {}. Give "
+            "every special code a value, or pass one value for all of them."
+            .format(missing))
+
+
 def _check_show_digits(show_digits):
     if (not isinstance(show_digits, numbers.Integral) or
             not 0 <= show_digits <= 8):
@@ -198,18 +222,24 @@ def _apply_transform(x, dtype, special_codes, metric, metric_special,
 
     # bool() on an ndarray of more than one code raises; the checker
     # and the docstrings accept a numpy.ndarray here.
+    _check_metric_special_dict(metric_special, special_codes)
+
     if special_codes is not None and len(special_codes):
         if isinstance(special_codes, dict):
             xt = pd.Series(x)
             for i, (k, s) in enumerate(special_codes.items()):
                 sl = s if isinstance(s, (list, np.ndarray)) else [s]
                 mask = xt.isin(sl).values
-                if (metric_special == "empirical" or (metric == "indices" and
-                    not isinstance(metric_special, int)) or
+                # A dict metric_special carries one value per named bucket;
+                # anything else applies to all of them.
+                ms = (metric_special[k] if isinstance(metric_special, dict)
+                      else metric_special)
+                if (ms == "empirical" or (metric == "indices" and
+                    not isinstance(ms, int)) or
                         metric == "bins"):
                     x_transform[mask] = metric_value[n_bins + i]
                 else:
-                    x_transform[mask] = metric_special
+                    x_transform[mask] = ms
         else:
             if (metric_special == "empirical" or
                 (metric == "indices" and

@@ -170,6 +170,17 @@ exception was raised, the output merely was not what it claimed to be.
 
 **Validation and messages.**
 
+- **A dict `metric_special` passed validation and then raised.** The parameter
+  checker has always had a branch validating one number per key — it arrived
+  with named `special_codes` in upstream `51445f0` — but the transform ignored
+  the keys and handed the dict to numpy, so `transform(metric_special={"a":
+  0.5})` died with `TypeError: float() argument must be a string or a real
+  number, not 'dict'`. A dict now does what the checker always implied: it gives
+  each **named** special bucket its own value, for the binary, continuous,
+  multiclass and piecewise estimators and for `BinningProcess`. Passing a dict
+  where `special_codes` is not a dict, or omitting a bucket, now raises a
+  `ValueError` naming the problem instead of failing inside numpy.
+
 - **`time_limit=float("nan")` and `time_limit=float("inf")` passed validation**
   at all eight sites that accept the parameter, because neither is `< 0`. A
   `nan` budget then produced a silently empty binning (`solver="cp"` reported

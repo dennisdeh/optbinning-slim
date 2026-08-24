@@ -117,11 +117,13 @@ had just defined); the `time_limit : int` docstrings; `OptimalPWBinning.fit`
 fitting the caller's estimator in place; and a dict `metric_special` that passes
 validation and then raises.
 
-*Both `time_limit` items were resolved later the same day, on request: non-finite
-values are now rejected at all eight sites and the docstrings read `int or
-float`. The reasoning for the first is in `DECISIONS.md`. The other two are
-still open. Left as written above because this is a point-in-time record of the
-session, not a live list — `OPEN_ITEMS.md` is the live list.*
+*Three of the four were resolved later the same day, on request: `time_limit`
+now rejects non-finite values at all eight sites, its docstrings read `int or
+float`, and a dict `metric_special` gives each named special bucket its own
+value. The reasoning for each is in `DECISIONS.md`. Only the
+`OptimalPWBinning.fit` estimator-aliasing item is still open. The paragraph
+above is left as written: it is a point-in-time record of the session, and
+`OPEN_ITEMS.md` is the live list.*
 
 ## Filing
 

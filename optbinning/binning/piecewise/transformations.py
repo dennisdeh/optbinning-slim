@@ -11,6 +11,7 @@ import pandas as pd
 from sklearn.utils import check_array
 
 from ...binning.transformations import transform_event_rate_to_woe
+from ...binning.transformations import _check_metric_special_dict
 from ...binning.transformations import _check_metric_special_missing
 from ...binning.transformations import _mask_special_missing
 
@@ -36,16 +37,22 @@ def _apply_transform(x, c, lb, ub, special_codes, metric_special,
 
     # bool() on an ndarray of more than one code raises; the checker
     # and the docstrings accept a numpy.ndarray here.
+    _check_metric_special_dict(metric_special, special_codes)
+
     if special_codes is not None and len(special_codes):
         if isinstance(special_codes, dict):
             xt = pd.Series(x)
             for i, (k, s) in enumerate(special_codes.items()):
                 sl = s if isinstance(s, (list, np.ndarray)) else [s]
                 mask = xt.isin(sl).values
-                if metric_special == "empirical":
+                # A dict metric_special carries one value per named bucket;
+                # anything else applies to all of them.
+                ms = (metric_special[k] if isinstance(metric_special, dict)
+                      else metric_special)
+                if ms == "empirical":
                     x_transform[mask] = event_rate_special[i]
                 else:
-                    x_transform[mask] = metric_special
+                    x_transform[mask] = ms
         else:
             if metric_special == "empirical":
                 x_transform[special_mask] = event_rate_special

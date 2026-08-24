@@ -790,11 +790,14 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             overrides this one; see that parameter for which combinations the
             single-dtype output array admits, and which raise ``ValueError``.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
             event rate for a binary target, and any numerical value for other
             targets.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
@@ -849,11 +852,14 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             overrides this one; see that parameter for which combinations the
             single-dtype output array admits, and which raise ``ValueError``.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
             event rate for a binary target, and any numerical value for other
             targets.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
@@ -898,11 +904,14 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             overrides this one; see that parameter for which combinations the
             single-dtype output array admits, and which raise ``ValueError``.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
             event rate for a binary target, and any numerical value for other
             targets.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
@@ -956,11 +965,14 @@ class BinningProcess(Base, BaseEstimator, BaseBinningProcess):
             overrides this one; see that parameter for which combinations the
             single-dtype output array admits, and which raise ``ValueError``.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical WoE or
             event rate for a binary target, and any numerical value for other
             targets.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.

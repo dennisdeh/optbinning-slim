@@ -220,10 +220,13 @@ class ContinuousOptimalPWBinning(BasePWBinning):
         y : array-like, shape = (n_samples,)
             Target vector relative to x.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical mean and any
             numerical value.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
@@ -257,10 +260,13 @@ class ContinuousOptimalPWBinning(BasePWBinning):
         x : array-like, shape = (n_samples,)
             Training vector, where n_samples is the number of samples.
 
-        metric_special : float or str (default=0)
+        metric_special : float, str or dict (default=0)
             The metric value to transform special codes in the input vector.
             Supported metrics are "empirical" to use the empirical mean and any
             numerical value.
+            When ``special_codes`` is a dict, a dict keyed by the same names
+            gives each special bucket its own value, and every name must be
+            present.
 
         metric_missing : float or str (default=0)
             The metric value to transform missing values in the input vector.
